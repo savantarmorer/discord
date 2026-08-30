@@ -61,20 +61,11 @@ function getConquistasPayload(authorId, selectedValue, rarityStats, username, av
     for (let i = 0; i < LOOT_TABLE.length; i += chunkSize) {
       const chunk = LOOT_TABLE.slice(i, i + chunkSize);
       let content = '';
-      
+
       for (const loot of chunk) {
         const count = rarityStats[loot.name] || 0;
         const percentage = ((count / totalDrops) * 100).toFixed(1);
-        const desc = BADGE_DESCRIPTIONS[loot.id] || 'Condição desconhecida.';
-        
-        const t1 = loot.icon;
-        const t2 = loot.evolutions[0].icon;
-        const t3 = loot.evolutions[1].icon;
-
-        content += `### ${loot.icon} ${loot.name}\n` +
-          `> 💡 **Como obter:** ${desc}\n` +
-          `> 📈 **Evolução:** ${t1} (Base) ➔ ${t2} (Tier 2, 5x) ➔ ${t3} (Tier 3, 10x)\n` +
-          `> 📊 **Frequência:** \`${count}\` drops (~${percentage}%)\n\n`;
+        content += `${loot.icon} **${loot.name}** — \`${count}\` drops (~${percentage}%)\n`;
       }
 
       containerComponents.push({
@@ -82,6 +73,11 @@ function getConquistasPayload(authorId, selectedValue, rarityStats, username, av
         content: content.trim()
       });
     }
+
+    containerComponents.push({
+      type: 10, // Text Display
+      content: '*Selecione uma conquista no menu abaixo para ver a descrição completa, como obter e os níveis de evolução.*'
+    });
   } else {
     const loot = LOOT_TABLE.find(l => l.id === selectedValue);
     if (loot) {
