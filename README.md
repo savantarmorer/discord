@@ -64,6 +64,55 @@ CREATE POLICY "Allow all operations for service role"
   FOR ALL 
   USING (true) 
   WITH CHECK (true);
+
+-- ============================================
+-- Arquivo de gravações de calls (/calls, /renomearcall)
+-- ============================================
+CREATE TABLE IF NOT EXISTS call_recordings (
+  id BIGSERIAL PRIMARY KEY,
+  guild_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  channel_name TEXT,
+  session_id TEXT NOT NULL,
+  segment_index INTEGER NOT NULL,
+  storage_path TEXT NOT NULL UNIQUE,
+  title TEXT,
+  category TEXT,
+  upvotes INTEGER NOT NULL DEFAULT 0,
+  downvotes INTEGER NOT NULL DEFAULT 0,
+  renamed_by TEXT,
+  renamed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS call_recording_votes (
+  recording_id BIGINT NOT NULL REFERENCES call_recordings(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  vote SMALLINT NOT NULL CHECK (vote IN (-1, 1)),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (recording_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS call_recording_comments (
+  id BIGSERIAL PRIMARY KEY,
+  recording_id BIGINT NOT NULL REFERENCES call_recordings(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  username TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_call_recordings_guild_category ON call_recordings(guild_id, category);
+CREATE INDEX IF NOT EXISTS idx_call_recording_comments_recording ON call_recording_comments(recording_id);
+
+ALTER TABLE call_recordings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all operations for service role" ON call_recordings FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE call_recording_votes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all operations for service role" ON call_recording_votes FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE call_recording_comments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all operations for service role" ON call_recording_comments FOR ALL USING (true) WITH CHECK (true);
 ```
 
 ### 3. Configure o Bot no Discord Developer Portal
@@ -99,6 +148,10 @@ SUPABASE_KEY=sua_service_role_key_aqui
 # dividido em blocos de 30 minutos, enviado ao Supabase Storage):
 SUPABASE_SERVICE_KEY=sua_chave_service_role_aqui
 RECORDINGS_CHANNEL_ID=id_do_canal_de_texto_para_postar_os_links
+
+# Opcional — cargo exigido para usar /calls e /renomearcall (arquivo de
+# gravações antigas). Sem essa variável, ninguém tem acesso ao arquivo.
+CALLS_ARCHIVE_ROLE_ID=id_do_cargo_com_acesso_ao_arquivo
 ```
 
 > Para a gravação de calls funcionar, crie no Supabase um bucket de Storage

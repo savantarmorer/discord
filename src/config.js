@@ -31,6 +31,8 @@ export const config = {
   defaultVoiceChannelId: process.env.DEFAULT_VOICE_CHANNEL_ID,
   // Canal de texto opcional onde o bot posta os links das gravações de call ao final de cada sessão.
   recordingsChannelId: process.env.RECORDINGS_CHANNEL_ID,
+  // Cargo exigido para usar /calls e /renomearcall (arquivo de gravações). Sem essa variável, ninguém tem acesso.
+  callsArchiveRoleId: process.env.CALLS_ARCHIVE_ROLE_ID,
 
   // Supabase
   supabaseUrl: process.env.SUPABASE_URL,

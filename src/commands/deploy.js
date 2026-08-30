@@ -15,6 +15,8 @@ import { data as falar } from './falar.js';
 import { data as repetir } from './repetir.js';
 import { data as conquistas } from './conquistas.js';
 import { data as logs } from './logs.js';
+import { data as calls } from './calls.js';
+import { data as renomearcall } from './renomearcall.js';
 
 const commands = [
   statusvoz.toJSON(),
@@ -25,7 +27,9 @@ const commands = [
   falar.toJSON(),
   repetir.toJSON(),
   conquistas.toJSON(),
-  logs.toJSON()
+  logs.toJSON(),
+  calls.toJSON(),
+  renomearcall.toJSON()
 ];
 
 const rest = new REST({ version: '10' }).setToken(config.token);

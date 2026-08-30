@@ -49,6 +49,8 @@ import * as falarCommand from './commands/falar.js';
 import * as repetirCommand from './commands/repetir.js';
 import * as conquistasCommand from './commands/conquistas.js';
 import * as logsCommand from './commands/logs.js';
+import * as callsCommand from './commands/calls.js';
+import * as renomearcallCommand from './commands/renomearcall.js';
 import { deployCommands } from './commands/deploy.js';
 
 
@@ -82,6 +84,8 @@ client.commands.set(falarCommand.data.name, falarCommand);
 client.commands.set(repetirCommand.data.name, repetirCommand);
 client.commands.set(conquistasCommand.data.name, conquistasCommand);
 client.commands.set(logsCommand.data.name, logsCommand);
+client.commands.set(callsCommand.data.name, callsCommand);
+client.commands.set(renomearcallCommand.data.name, renomearcallCommand);
 
 // ============================================
 // 3. Evento: Bot está pronto
@@ -300,6 +304,27 @@ client.on(Events.InteractionCreate, async (interaction) => {
           content: '❌ Ocorreu um erro ao processar esta ação.',
           ephemeral: true
         }).catch(() => null);
+      }
+    }
+  }
+  // Se for envio de um modal (formulário)
+  else if (interaction.isModalSubmit()) {
+    const customId = interaction.customId;
+    const parts = customId.split(':');
+    const commandPrefix = parts[0];
+
+    const command = client.commands.get(commandPrefix);
+    if (command && typeof command.handleModalSubmit === 'function') {
+      try {
+        await command.handleModalSubmit(interaction, parts.slice(1));
+      } catch (error) {
+        console.error(`❌ Erro ao processar modal ${customId}:`, error);
+        const reply = { content: '❌ Ocorreu um erro ao processar este formulário.', ephemeral: true };
+        if (interaction.deferred || interaction.replied) {
+          await interaction.editReply(reply).catch(() => null);
+        } else {
+          await interaction.reply(reply).catch(() => null);
+        }
       }
     }
   }

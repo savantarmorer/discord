@@ -12,6 +12,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { config } from './config.js';
+import { registerRecording } from './callArchive.js';
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -83,6 +84,7 @@ export function startSession(guildId, channelId, channelName, client) {
   const session = {
     sessionId,
     sessionDir,
+    guildId,
     channelId,
     channelName,
     client,
@@ -239,7 +241,18 @@ async function uploadSegment(session, segmentIndex, oggPath) {
     return null;
   }
 
-  return signedData.signedUrl;
+  return { url: signedData.signedUrl, storagePath };
+}
+
+async function registerInArchive(session, segmentIndex, storagePath) {
+  await registerRecording({
+    guildId: session.guildId,
+    channelId: session.channelId,
+    channelName: session.channelName,
+    sessionId: session.sessionId,
+    segmentIndex,
+    storagePath,
+  });
 }
 
 async function postSegmentLink(session, segmentIndex, url) {
@@ -278,8 +291,11 @@ async function finalizeSegment(session, startNext) {
   try {
     const oggPath = await mixSegmentToOgg(segment);
     if (oggPath) {
-      const url = await uploadSegment(session, segmentIndex, oggPath);
-      if (url) await postSegmentLink(session, segmentIndex, url);
+      const uploaded = await uploadSegment(session, segmentIndex, oggPath);
+      if (uploaded) {
+        await postSegmentLink(session, segmentIndex, uploaded.url);
+        await registerInArchive(session, segmentIndex, uploaded.storagePath);
+      }
     }
   } catch (err) {
     console.error(`❌ [CALL-REC] Erro ao finalizar segmento ${segmentIndex} de "${session.channelName}":`, err.message);
