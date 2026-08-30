@@ -51,6 +51,8 @@ function saveVoiceMetadata(userId, username) {
 
 const CLIP_MAX_BYTES = 48000 * 4 * 5; // ~5s de áudio estéreo 16-bit @ 48kHz
 
+const DECODE_ERROR_RETRIES = 3;
+
 /**
  * Assina o áudio de um usuário UMA única vez por trecho de fala e distribui
  * os chunks decodificados para os dois consumidores:
@@ -63,52 +65,80 @@ const CLIP_MAX_BYTES = 48000 * 4 * 5; // ~5s de áudio estéreo 16-bit @ 48kHz
  * módulo e callRecorder.js chamassem subscribe() cada um por conta própria,
  * as duas gravações acabariam compartilhando o mesmo fluxo, e o destroy()
  * de uma (ex.: o antigo corte de 5s) cortava a outra também.
+ *
+ * Um pacote Opus corrompido/perdido faz o opusscript (decoder puro em JS,
+ * menos tolerante que o binding nativo @discordjs/opus) lançar erro e
+ * encerrar a stream inteira — sem tratamento, isso cortava o resto da fala
+ * até o próximo evento de "começou a falar". Em vez disso, reassina e
+ * continua capturando o restante do trecho (até DECODE_ERROR_RETRIES vezes).
  */
 function recordUserVoice(connection, userId, username, guildId) {
   if (recordingUsers.has(userId)) return;
   recordingUsers.add(userId);
 
-  try {
-    const receiver = connection.receiver;
-    const opusStream = receiver.subscribe(userId, {
-      end: {
-        behavior: EndBehaviorType.AfterSilence,
-        duration: 1500,
-      },
-    });
+  const recordingPath = path.resolve(`./recordings/${userId}.pcm`);
+  const writeStream = fs.createWriteStream(recordingPath);
+  let clipBytesWritten = 0;
+  let retriesLeft = DECODE_ERROR_RETRIES;
 
-    const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 });
-    const recordingPath = path.resolve(`./recordings/${userId}.pcm`);
-    const writeStream = fs.createWriteStream(recordingPath);
-    let clipBytesWritten = 0;
-
-    decoder.on('data', (chunk) => {
-      // Gravação completa da call (todos os chunks, a duração toda do trecho)
-      callRecorder.writeAudioChunk(guildId, userId, username, chunk);
-
-      // Clipe curto do /repetir: só os primeiros ~5s
-      if (clipBytesWritten < CLIP_MAX_BYTES) {
-        writeStream.write(chunk);
-        clipBytesWritten += chunk.length;
-      }
-    });
-
-    pipeline(opusStream, decoder, (err) => {
-      writeStream.end();
-      recordingUsers.delete(userId);
-      if (err) {
-        const msg = err.message.toLowerCase();
-        if (!msg.includes('premature close') && !msg.includes('destroyed')) {
-          console.error(`❌ [REC] Erro ao gravar voz de ${username}:`, err.message);
-        }
-      } else if (clipBytesWritten > 0) {
-        saveVoiceMetadata(userId, username);
-      }
-    });
-  } catch (err) {
+  const finish = () => {
+    writeStream.end();
     recordingUsers.delete(userId);
-    console.error(`❌ [REC] Falha crítica ao iniciar gravação de ${username}:`, err.message);
-  }
+    if (clipBytesWritten > 0) saveVoiceMetadata(userId, username);
+  };
+
+  const startCapture = () => {
+    try {
+      const receiver = connection.receiver;
+      const opusStream = receiver.subscribe(userId, {
+        end: {
+          behavior: EndBehaviorType.AfterSilence,
+          duration: 1500,
+        },
+      });
+
+      const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 });
+
+      decoder.on('data', (chunk) => {
+        // Gravação completa da call (todos os chunks, a duração toda do trecho)
+        callRecorder.writeAudioChunk(guildId, userId, username, chunk);
+
+        // Clipe curto do /repetir: só os primeiros ~5s
+        if (clipBytesWritten < CLIP_MAX_BYTES) {
+          writeStream.write(chunk);
+          clipBytesWritten += chunk.length;
+        }
+      });
+
+      pipeline(opusStream, decoder, (err) => {
+        if (!err) {
+          finish();
+          return;
+        }
+
+        const msg = err.message.toLowerCase();
+        if (msg.includes('premature close') || msg.includes('destroyed')) {
+          finish();
+          return;
+        }
+
+        // Erro inesperado (ex.: "Decode error: Invalid packet") — tenta
+        // retomar a captação do restante da fala em vez de perdê-la.
+        if (retriesLeft > 0) {
+          retriesLeft -= 1;
+          startCapture();
+        } else {
+          console.error(`❌ [REC] Erro ao gravar voz de ${username}:`, err.message);
+          finish();
+        }
+      });
+    } catch (err) {
+      console.error(`❌ [REC] Falha crítica ao iniciar gravação de ${username}:`, err.message);
+      finish();
+    }
+  };
+
+  startCapture();
 }
 
 /**
