@@ -33,15 +33,7 @@ cd "d:\discord bot"
 npm install
 ```
 
-> **Nota para Windows:** Se `@discordjs/opus` falhar na compilação, instale também:
-> ```bash
-> npm install --global windows-build-tools
-> ```
-> Ou use `opusscript` como alternativa (mais lento):
-> ```bash
-> npm uninstall @discordjs/opus
-> npm install opusscript
-> ```
+> **Nota:** o projeto usa `opusscript` (decodificador Opus em JS puro) em vez de `@discordjs/opus`, que exige compilação nativa e falha em várias plataformas de deploy (ex.: Railway). Nenhuma etapa extra é necessária.
 
 ### 2. Configure o Supabase
 
