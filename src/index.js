@@ -306,16 +306,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 // ============================================
-// 5.5 Evento: Mensagem de Texto (Suporte a comandos com $)
+// 5.5 Evento: Mensagem de Texto (Suporte a comandos com $ ou %)
 // ============================================
 client.on(Events.MessageCreate, async (message) => {
   // Ignora mensagens de bots ou fora de servidores
   if (message.author.bot || !message.guild) return;
 
-  // Verifica se a mensagem começa com "$"
-  if (!message.content.startsWith('$')) return;
+  // Verifica se a mensagem começa com "$" ou "%"
+  const prefix = ['$', '%'].find((p) => message.content.startsWith(p));
+  if (!prefix) return;
 
-  const args = message.content.slice(1).trim().split(/\s+/);
+  const args = message.content.slice(prefix.length).trim().split(/\s+/);
   const commandName = args.shift().toLowerCase();
 
   const command = client.commands.get(commandName);
@@ -428,7 +429,7 @@ client.on(Events.MessageCreate, async (message) => {
   try {
     await command.execute(mockInteraction);
   } catch (error) {
-    console.error(`❌ Erro ao executar $${commandName} via texto:`, error);
+    console.error(`❌ Erro ao executar ${prefix}${commandName} via texto:`, error);
     const errorPayload = { content: '❌ Ocorreu um erro ao executar este comando.' };
     if (mockInteraction.deferred || mockInteraction.replied) {
       await mockInteraction.editReply(errorPayload).catch(() => null);
