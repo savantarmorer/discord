@@ -23,6 +23,7 @@ import {
   addComment,
   getComments,
   getListenUrl,
+  incrementListenCount,
   getParticipants,
 } from '../callArchive.js';
 
@@ -231,6 +232,7 @@ export async function handleInteraction(interaction, args) {
     if (!url) {
       return interaction.editReply({ content: '❌ Erro ao gerar o link de áudio.' });
     }
+    await incrementListenCount(recordingId);
     return interaction.editReply({ content: `🔊 ${url}\n*Link válido por 24h.*` });
   }
 

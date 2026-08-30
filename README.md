@@ -80,6 +80,8 @@ CREATE TABLE IF NOT EXISTS call_recordings (
   category TEXT,
   upvotes INTEGER NOT NULL DEFAULT 0,
   downvotes INTEGER NOT NULL DEFAULT 0,
+  comment_count INTEGER NOT NULL DEFAULT 0,
+  listen_count INTEGER NOT NULL DEFAULT 0,
   renamed_by TEXT,
   renamed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()

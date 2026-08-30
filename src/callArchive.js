@@ -224,7 +224,24 @@ export async function addComment(recordingId, userId, username, content) {
     console.error(`❌ [CALL-ARCHIVE] Erro ao comentar na gravação ${recordingId}:`, error.message);
     return false;
   }
+
+  const { count } = await supabase
+    .from('call_recording_comments')
+    .select('id', { count: 'exact', head: true })
+    .eq('recording_id', recordingId);
+  await supabase.from('call_recordings').update({ comment_count: count || 0 }).eq('id', recordingId);
+
   return true;
+}
+
+/**
+ * Registra um clique em "Ouvir" — usado como proxy de alcance/audiência
+ * já que não há como medir tempo real de escuta (o áudio toca fora do bot).
+ */
+export async function incrementListenCount(recordingId) {
+  const { data } = await supabase.from('call_recordings').select('listen_count').eq('id', recordingId).single();
+  const current = data?.listen_count || 0;
+  await supabase.from('call_recordings').update({ listen_count: current + 1 }).eq('id', recordingId);
 }
 
 export async function getComments(recordingId, limit = 5) {
@@ -257,4 +274,63 @@ export async function getListenUrl(storagePath, expirySeconds = 60 * 60 * 24) {
     return null;
   }
   return data.signedUrl;
+}
+
+/**
+ * Relatório de participação: distribui o "engajamento" de cada gravação
+ * (votos, comentários, cliques em ouvir) entre quem falou nela, proporcional
+ * ao tempo de fala, soma tudo no período e normaliza em percentual por usuário.
+ *
+ * Fórmula (ver conversa): Engajamento(r) = max(0, (up-down)*Wv + comentários*Wc + ouvir*Wl)
+ * Fatia(u,r) = Engajamento(r) * tempo_fala(u,r)/tempo_fala_total(r)
+ * Percentual(u) = ΣFatia(u,r) / ΣFatia(todos,r) * 100
+ */
+export async function getParticipationReport(guildId, sinceIso, weights = { vote: 3, comment: 2, listen: 1 }) {
+  const { data, error } = await supabase
+    .from('call_recording_participants')
+    .select('user_id, username, speaking_ms, recording_id, call_recordings!inner(guild_id, created_at, upvotes, downvotes, comment_count, listen_count)')
+    .eq('call_recordings.guild_id', guildId)
+    .eq('spoke', true)
+    .gte('call_recordings.created_at', sinceIso);
+
+  if (error) {
+    console.error('❌ [CALL-ARCHIVE] Erro ao calcular relatório de participação:', error.message);
+    return [];
+  }
+
+  const byRecording = new Map();
+  for (const row of data) {
+    if (!byRecording.has(row.recording_id)) {
+      byRecording.set(row.recording_id, { rec: row.call_recordings, participants: [] });
+    }
+    byRecording.get(row.recording_id).participants.push(row);
+  }
+
+  const userScores = new Map();
+  for (const { rec, participants } of byRecording.values()) {
+    const netVotes = (rec.upvotes || 0) - (rec.downvotes || 0);
+    const engagement = Math.max(
+      0,
+      netVotes * weights.vote + (rec.comment_count || 0) * weights.comment + (rec.listen_count || 0) * weights.listen
+    );
+    if (engagement === 0) continue;
+
+    const totalSpeakingMs = participants.reduce((sum, p) => sum + (p.speaking_ms || 0), 0);
+    if (totalSpeakingMs === 0) continue;
+
+    for (const p of participants) {
+      const share = engagement * (p.speaking_ms / totalSpeakingMs);
+      const entry = userScores.get(p.user_id) || { userId: p.user_id, username: p.username, score: 0 };
+      entry.score += share;
+      entry.username = p.username;
+      userScores.set(p.user_id, entry);
+    }
+  }
+
+  const totalScore = [...userScores.values()].reduce((sum, u) => sum + u.score, 0);
+  if (totalScore === 0) return [];
+
+  return [...userScores.values()]
+    .map((u) => ({ userId: u.userId, username: u.username, percent: (u.score / totalScore) * 100 }))
+    .sort((a, b) => b.percent - a.percent);
 }

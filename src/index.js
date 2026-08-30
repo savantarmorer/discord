@@ -51,6 +51,7 @@ import * as conquistasCommand from './commands/conquistas.js';
 import * as logsCommand from './commands/logs.js';
 import * as callsCommand from './commands/calls.js';
 import * as renomearcallCommand from './commands/renomearcall.js';
+import * as participacaoCommand from './commands/participacao.js';
 import { deployCommands } from './commands/deploy.js';
 
 
@@ -86,6 +87,7 @@ client.commands.set(conquistasCommand.data.name, conquistasCommand);
 client.commands.set(logsCommand.data.name, logsCommand);
 client.commands.set(callsCommand.data.name, callsCommand);
 client.commands.set(renomearcallCommand.data.name, renomearcallCommand);
+client.commands.set(participacaoCommand.data.name, participacaoCommand);
 
 // ============================================
 // 3. Evento: Bot está pronto

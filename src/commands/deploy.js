@@ -17,6 +17,7 @@ import { data as conquistas } from './conquistas.js';
 import { data as logs } from './logs.js';
 import { data as calls } from './calls.js';
 import { data as renomearcall } from './renomearcall.js';
+import { data as participacao } from './participacao.js';
 
 const commands = [
   statusvoz.toJSON(),
@@ -29,7 +30,8 @@ const commands = [
   conquistas.toJSON(),
   logs.toJSON(),
   calls.toJSON(),
-  renomearcall.toJSON()
+  renomearcall.toJSON(),
+  participacao.toJSON()
 ];
 
 const rest = new REST({ version: '10' }).setToken(config.token);
