@@ -11,12 +11,9 @@
 // mas o resto do bot continua funcionando normalmente.
 
 import { createClient } from '@supabase/supabase-js';
-import { EndBehaviorType } from '@discordjs/voice';
 import { config } from './config.js';
 import fs from 'fs';
 import path from 'path';
-import prism from 'prism-media';
-import { pipeline } from 'stream';
 import { spawn } from 'child_process';
 import ffmpegPath from 'ffmpeg-static';
 
@@ -26,7 +23,11 @@ const PCM_BITS_PER_SAMPLE = 16;
 const BLOCK_ALIGN = (PCM_CHANNELS * PCM_BITS_PER_SAMPLE) / 8; // 4 bytes por amostra estéreo
 const BYTES_PER_MS = (PCM_SAMPLE_RATE * BLOCK_ALIGN) / 1000; // 192 bytes/ms
 
-const SILENCE_END_MS = 1500; // encerra a captação de um trecho após 1.5s de silêncio
+// Só resincroniza com o tempo real se o "atraso" acumulado passar disso.
+// Jitter normal de rede fica abaixo desse limiar e é ignorado — sem isso,
+// qualquer chunk levemente atrasado inseria um microcorte de silêncio.
+const REALIGN_THRESHOLD_MS = 200;
+
 const SEGMENT_DURATION_MS = 30 * 60 * 1000; // divide a gravação a cada 30 minutos
 
 const RECORDINGS_DIR = path.resolve('./recordings/sessions');
@@ -85,7 +86,6 @@ export function startSession(guildId, channelId, channelName, client) {
     channelId,
     channelName,
     client,
-    activeUserIds: new Set(),
     segmentIndex: 0,
     segment: createSegment(sessionDir, 0),
     rotationTimer: null,
@@ -101,66 +101,44 @@ export function startSession(guildId, channelId, channelName, client) {
   console.log(`🎙️ [CALL-REC] Sessão de gravação iniciada: ${channelName} (${sessionId})`);
 }
 
-/**
- * Escreve um chunk de PCM decodificado na faixa do usuário dentro do segmento atual,
- * preenchendo silêncio antes para manter o alinhamento com o tempo real decorrido.
- */
-function writeChunk(session, userId, username, chunk) {
-  const segment = session.segment;
+function getOrCreateTrack(segment, userId, username) {
   let track = segment.tracks.get(userId);
   if (!track) {
     const filePath = path.join(segment.segmentDir, `${userId}.pcm`);
     track = { username, filePath, writeStream: fs.createWriteStream(filePath), bytesWritten: 0 };
     segment.tracks.set(userId, track);
   }
+  return track;
+}
 
-  const elapsedMs = Date.now() - segment.startedAt;
+/**
+ * Recebe um chunk de PCM já decodificado (o subscribe/decode do Discord é
+ * feito uma única vez em voiceManager.js — subscrever duas vezes ao mesmo
+ * usuário faz o @discordjs/voice reaproveitar a MESMA stream, então duas
+ * gravações independentes acabavam compartilhando (e destruindo) o mesmo
+ * fluxo de áudio). Esta função é só um "sink": grava na faixa do usuário
+ * dentro do segmento atual, resincronizando com o tempo real apenas
+ * quando o atraso acumulado passa de REALIGN_THRESHOLD_MS — jitter normal
+ * de rede fica abaixo disso e é ignorado, evitando microcortes.
+ */
+export function writeAudioChunk(guildId, userId, username, chunk) {
+  const session = activeSessions.get(guildId);
+  if (!session) return;
+
+  const track = getOrCreateTrack(session.segment, userId, username);
+
+  const elapsedMs = Date.now() - session.segment.startedAt;
   const expectedBytes = alignToBlock(elapsedMs * BYTES_PER_MS);
-  if (expectedBytes > track.bytesWritten) {
-    const silence = Buffer.alloc(expectedBytes - track.bytesWritten);
+  const gapMs = (expectedBytes - track.bytesWritten) / BYTES_PER_MS;
+
+  if (gapMs > REALIGN_THRESHOLD_MS) {
+    const silence = Buffer.alloc(alignToBlock(expectedBytes - track.bytesWritten));
     track.writeStream.write(silence);
     track.bytesWritten += silence.length;
   }
 
   track.writeStream.write(chunk);
   track.bytesWritten += chunk.length;
-}
-
-/**
- * Inicia a captação de fala do usuário (uma única subscrição por sessão —
- * os chunks decodificados são sempre gravados no segmento "atual", então
- * a rotação de segmento não precisa reabrir a subscrição do Discord).
- */
-export function recordUserAudio(guildId, connection, userId, username) {
-  const session = activeSessions.get(guildId);
-  if (!session) return;
-  if (session.activeUserIds.has(userId)) return;
-  session.activeUserIds.add(userId);
-
-  try {
-    const receiver = connection.receiver;
-    const opusStream = receiver.subscribe(userId, {
-      end: { behavior: EndBehaviorType.AfterSilence, duration: SILENCE_END_MS },
-    });
-
-    const decoder = new prism.opus.Decoder({
-      rate: PCM_SAMPLE_RATE,
-      channels: PCM_CHANNELS,
-      frameSize: 960,
-    });
-
-    decoder.on('data', (chunk) => writeChunk(session, userId, username, chunk));
-
-    pipeline(opusStream, decoder, (err) => {
-      session.activeUserIds.delete(userId);
-      if (err && !/premature close|destroyed/i.test(err.message)) {
-        console.error(`❌ [CALL-REC] Erro ao gravar trecho de ${username}:`, err.message);
-      }
-    });
-  } catch (err) {
-    session.activeUserIds.delete(userId);
-    console.error(`❌ [CALL-REC] Falha ao iniciar captação de ${username}:`, err.message);
-  }
 }
 
 function runFfmpeg(args) {

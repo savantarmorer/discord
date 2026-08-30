@@ -49,10 +49,22 @@ function saveVoiceMetadata(userId, username) {
   }
 }
 
+const CLIP_MAX_BYTES = 48000 * 4 * 5; // ~5s de áudio estéreo 16-bit @ 48kHz
+
 /**
- * Grava o fluxo de áudio de um usuário, decodifica para PCM e salva localmente.
+ * Assina o áudio de um usuário UMA única vez por trecho de fala e distribui
+ * os chunks decodificados para os dois consumidores:
+ *  - o clipe curto (~5s) usado pelo /repetir
+ *  - a gravação completa da call (callRecorder.js)
+ *
+ * IMPORTANTE: só pode existir UMA subscrição ativa por usuário aqui.
+ * O receiver.subscribe() do @discordjs/voice reaproveita a MESMA stream
+ * se já houver uma subscrição ativa para aquele userId — então se este
+ * módulo e callRecorder.js chamassem subscribe() cada um por conta própria,
+ * as duas gravações acabariam compartilhando o mesmo fluxo, e o destroy()
+ * de uma (ex.: o antigo corte de 5s) cortava a outra também.
  */
-function recordUserVoice(connection, userId, username) {
+function recordUserVoice(connection, userId, username, guildId) {
   if (recordingUsers.has(userId)) return;
   recordingUsers.add(userId);
 
@@ -60,30 +72,36 @@ function recordUserVoice(connection, userId, username) {
     const receiver = connection.receiver;
     const opusStream = receiver.subscribe(userId, {
       end: {
-        behavior: EndBehaviorType.Manual,
+        behavior: EndBehaviorType.AfterSilence,
+        duration: 1500,
       },
     });
 
     const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 });
     const recordingPath = path.resolve(`./recordings/${userId}.pcm`);
     const writeStream = fs.createWriteStream(recordingPath);
+    let clipBytesWritten = 0;
 
-    // Encerra e finaliza a gravação após exatamente 5 segundos
-    const recordingTimeout = setTimeout(() => {
-      if (!opusStream.destroyed) {
-        opusStream.destroy();
+    decoder.on('data', (chunk) => {
+      // Gravação completa da call (todos os chunks, a duração toda do trecho)
+      callRecorder.writeAudioChunk(guildId, userId, username, chunk);
+
+      // Clipe curto do /repetir: só os primeiros ~5s
+      if (clipBytesWritten < CLIP_MAX_BYTES) {
+        writeStream.write(chunk);
+        clipBytesWritten += chunk.length;
       }
-    }, 5000);
+    });
 
-    pipeline(opusStream, decoder, writeStream, (err) => {
-      clearTimeout(recordingTimeout);
+    pipeline(opusStream, decoder, (err) => {
+      writeStream.end();
       recordingUsers.delete(userId);
       if (err) {
         const msg = err.message.toLowerCase();
         if (!msg.includes('premature close') && !msg.includes('destroyed')) {
           console.error(`❌ [REC] Erro ao gravar voz de ${username}:`, err.message);
         }
-      } else {
+      } else if (clipBytesWritten > 0) {
         saveVoiceMetadata(userId, username);
       }
     });
@@ -160,11 +178,9 @@ export async function joinChannel(channel, client) {
 
       startSpeaking(channel.guild.id, userId, username);
 
-      // Grava a fala do usuário em segundo plano (clipe curto p/ /repetir)
-      recordUserVoice(connection, userId, username);
-
-      // Anexa este trecho de fala à faixa completa da call (se houver sessão ativa)
-      callRecorder.recordUserAudio(channel.guild.id, connection, userId, username);
+      // Assina o áudio do usuário (uma única vez) e alimenta tanto o clipe
+      // curto do /repetir quanto a gravação completa da call (callRecorder)
+      recordUserVoice(connection, userId, username, channel.guild.id);
     });
 
     /**
