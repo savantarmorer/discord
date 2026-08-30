@@ -94,7 +94,17 @@ DISCORD_CLIENT_ID=seu_client_id_aqui
 DISCORD_GUILD_ID=seu_guild_id_aqui
 SUPABASE_URL=https://seu-projeto.supabase.co
 SUPABASE_KEY=sua_service_role_key_aqui
+
+# Opcionais — gravação completa de calls (áudio mixado de todos os falantes,
+# dividido em blocos de 30 minutos, enviado ao Supabase Storage):
+SUPABASE_SERVICE_KEY=sua_chave_service_role_aqui
+RECORDINGS_CHANNEL_ID=id_do_canal_de_texto_para_postar_os_links
 ```
+
+> Para a gravação de calls funcionar, crie no Supabase um bucket de Storage
+> **privado** chamado `call-recordings` (Storage → New bucket). Nenhuma
+> política de RLS é necessária — o upload usa a chave `service_role`, que
+> ignora RLS automaticamente.
 
 ### 5. Registre os comandos de barra
 

@@ -12,6 +12,7 @@ import {
   EndBehaviorType,
 } from '@discordjs/voice';
 import { startSpeaking, stopSpeaking, stopAllSpeaking } from './speakingTracker.js';
+import * as callRecorder from './callRecorder.js';
 import { ChannelType } from 'discord.js';
 import { config } from './config.js';
 import fs from 'fs';
@@ -139,6 +140,9 @@ export async function joinChannel(channel, client) {
 
     console.log(`🔊 [VOZ] Bot conectado ao canal: ${channel.name} (${channel.id})`);
 
+    // Inicia a gravação completa (mixada) da call, se configurada
+    callRecorder.startSession(channel.guild.id, channel.id, channel.name, client);
+
     // ===================================================
     // Configura o listener de fala (Speaking Events)
     // ===================================================
@@ -156,8 +160,11 @@ export async function joinChannel(channel, client) {
 
       startSpeaking(channel.guild.id, userId, username);
 
-      // Grava a fala do usuário em segundo plano
+      // Grava a fala do usuário em segundo plano (clipe curto p/ /repetir)
       recordUserVoice(connection, userId, username);
+
+      // Anexa este trecho de fala à faixa completa da call (se houver sessão ativa)
+      callRecorder.recordUserAudio(channel.guild.id, connection, userId, username);
     });
 
     /**
@@ -217,6 +224,11 @@ async function cleanupConnection(channelId, guildId) {
 
   // Finaliza sessões de fala dos usuários no canal
   await stopAllSpeaking(guildId);
+
+  // Finaliza, mixa e envia a última parte da gravação da call, se houver sessão ativa
+  await callRecorder.endSession(guildId).catch((err) => {
+    console.error('❌ [CALL-REC] Erro ao finalizar sessão de gravação:', err.message);
+  });
 
   // Destrói a conexão de voz
   try {

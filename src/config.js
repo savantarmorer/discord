@@ -29,10 +29,15 @@ export const config = {
   clientId: process.env.DISCORD_CLIENT_ID,
   guildId: process.env.DISCORD_GUILD_ID,
   defaultVoiceChannelId: process.env.DEFAULT_VOICE_CHANNEL_ID,
+  // Canal de texto opcional onde o bot posta os links das gravações de call ao final de cada sessão.
+  recordingsChannelId: process.env.RECORDINGS_CHANNEL_ID,
 
   // Supabase
   supabaseUrl: process.env.SUPABASE_URL,
   supabaseKey: process.env.SUPABASE_KEY,
+  // Chave service_role — opcional, usada só pelo callRecorder.js para upload
+  // de gravações de chamada no Storage (bypassa RLS, nunca deve ir ao cliente).
+  supabaseServiceKey: process.env.SUPABASE_SERVICE_KEY,
 
   // Intervalo (ms) para salvar métricas parciais no banco (failsafe contra crashes)
   // A cada 5 minutos, os dados em memória são persistidos
