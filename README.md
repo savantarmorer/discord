@@ -102,8 +102,19 @@ CREATE TABLE IF NOT EXISTS call_recording_comments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS call_recording_participants (
+  recording_id BIGINT NOT NULL REFERENCES call_recordings(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  username TEXT NOT NULL,
+  spoke BOOLEAN NOT NULL DEFAULT false,
+  speaking_ms INTEGER NOT NULL DEFAULT 0,
+  presence_seconds INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (recording_id, user_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_call_recordings_guild_category ON call_recordings(guild_id, category);
 CREATE INDEX IF NOT EXISTS idx_call_recording_comments_recording ON call_recording_comments(recording_id);
+CREATE INDEX IF NOT EXISTS idx_call_recording_participants_user ON call_recording_participants(user_id);
 
 ALTER TABLE call_recordings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all operations for service role" ON call_recordings FOR ALL USING (true) WITH CHECK (true);
@@ -113,6 +124,9 @@ CREATE POLICY "Allow all operations for service role" ON call_recording_votes FO
 
 ALTER TABLE call_recording_comments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all operations for service role" ON call_recording_comments FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE call_recording_participants ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all operations for service role" ON call_recording_participants FOR ALL USING (true) WITH CHECK (true);
 ```
 
 ### 3. Configure o Bot no Discord Developer Portal

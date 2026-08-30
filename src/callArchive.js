@@ -16,10 +16,19 @@ const serviceSupabase = config.supabaseServiceKey
   : null;
 
 /**
- * Registra uma gravação recém-enviada ao Storage. Chamado por callRecorder.js
+ * Registra uma gravação recém-enviada ao Storage, junto com quem participou
+ * dela (quem falou e/ou estava presente no canal). Chamado por callRecorder.js
  * logo após o upload de cada segmento.
  */
-export async function registerRecording({ guildId, channelId, channelName, sessionId, segmentIndex, storagePath }) {
+export async function registerRecording({
+  guildId,
+  channelId,
+  channelName,
+  sessionId,
+  segmentIndex,
+  storagePath,
+  participants = [],
+}) {
   const { data, error } = await supabase
     .from('call_recordings')
     .insert({
@@ -37,6 +46,22 @@ export async function registerRecording({ guildId, channelId, channelName, sessi
     console.error('❌ [CALL-ARCHIVE] Erro ao registrar gravação:', error.message);
     return null;
   }
+
+  if (participants.length > 0) {
+    const rows = participants.map((p) => ({
+      recording_id: data.id,
+      user_id: p.userId,
+      username: p.username,
+      spoke: p.spoke,
+      speaking_ms: p.speakingMs,
+      presence_seconds: p.presenceSeconds,
+    }));
+    const { error: participantsError } = await supabase.from('call_recording_participants').insert(rows);
+    if (participantsError) {
+      console.error(`❌ [CALL-ARCHIVE] Erro ao registrar participantes da gravação ${data.id}:`, participantsError.message);
+    }
+  }
+
   return data.id;
 }
 
@@ -93,6 +118,51 @@ export async function getRecordingById(id) {
     return null;
   }
   return data;
+}
+
+/**
+ * Lista os participantes de uma gravação (quem falou e/ou estava presente),
+ * ordenados por quem mais falou.
+ */
+export async function getParticipants(recordingId) {
+  const { data, error } = await supabase
+    .from('call_recording_participants')
+    .select('user_id, username, spoke, speaking_ms, presence_seconds')
+    .eq('recording_id', recordingId)
+    .order('speaking_ms', { ascending: false });
+
+  if (error) {
+    console.error(`❌ [CALL-ARCHIVE] Erro ao buscar participantes da gravação ${recordingId}:`, error.message);
+    return [];
+  }
+  return data;
+}
+
+/**
+ * Ranking de usuários com maior presença/fala somada em todas as gravações
+ * arquivadas do servidor — base para um futuro /topcalls, por exemplo.
+ */
+export async function getTopParticipants(guildId, limit = 10) {
+  const { data, error } = await supabase
+    .from('call_recording_participants')
+    .select('user_id, username, speaking_ms, presence_seconds, call_recordings!inner(guild_id)')
+    .eq('call_recordings.guild_id', guildId);
+
+  if (error) {
+    console.error('❌ [CALL-ARCHIVE] Erro ao calcular ranking de participação:', error.message);
+    return [];
+  }
+
+  const totals = new Map();
+  for (const row of data) {
+    const entry = totals.get(row.user_id) || { userId: row.user_id, username: row.username, speakingMs: 0, presenceSeconds: 0 };
+    entry.speakingMs += row.speaking_ms || 0;
+    entry.presenceSeconds += row.presence_seconds || 0;
+    entry.username = row.username; // mantém o nome mais recente
+    totals.set(row.user_id, entry);
+  }
+
+  return [...totals.values()].sort((a, b) => b.presenceSeconds - a.presenceSeconds).slice(0, limit);
 }
 
 /**

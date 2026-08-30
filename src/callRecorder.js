@@ -13,6 +13,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { config } from './config.js';
 import { registerRecording } from './callArchive.js';
+import { getAllActiveSessions } from './voiceTracker.js';
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -244,7 +245,46 @@ async function uploadSegment(session, segmentIndex, oggPath) {
   return { url: signedData.signedUrl, storagePath };
 }
 
-async function registerInArchive(session, segmentIndex, storagePath) {
+/**
+ * Monta a lista de participantes do segmento: une quem falou (dados das
+ * faixas .pcm, antes de serem apagadas) com quem está presente no canal
+ * agora (voiceTracker.js, mesma fonte usada pelo XP/presença), já que a
+ * gravação em si só "vê" áudio de quem falou, não quem ficou calado.
+ */
+function buildParticipantList(segment, channelId) {
+  const speakers = new Map();
+  for (const [userId, track] of segment.tracks) {
+    if (track.bytesWritten > 0) {
+      speakers.set(userId, { username: track.username, speakingMs: Math.round(track.bytesWritten / BYTES_PER_MS) });
+    }
+  }
+
+  const presentNow = getAllActiveSessions().filter((s) => s.channelId === channelId);
+
+  const participants = new Map();
+  for (const [userId, { username, speakingMs }] of speakers) {
+    participants.set(userId, { userId, username, spoke: true, speakingMs, presenceSeconds: 0 });
+  }
+  for (const s of presentNow) {
+    const existing = participants.get(s.userId);
+    if (existing) {
+      existing.presenceSeconds = Math.round(s.presenceSeconds);
+    } else {
+      participants.set(s.userId, {
+        userId: s.userId,
+        username: s.username,
+        spoke: false,
+        speakingMs: 0,
+        presenceSeconds: Math.round(s.presenceSeconds),
+      });
+    }
+  }
+
+  return [...participants.values()];
+}
+
+async function registerInArchive(session, segment, segmentIndex, storagePath) {
+  const participants = buildParticipantList(segment, session.channelId);
   await registerRecording({
     guildId: session.guildId,
     channelId: session.channelId,
@@ -252,6 +292,7 @@ async function registerInArchive(session, segmentIndex, storagePath) {
     sessionId: session.sessionId,
     segmentIndex,
     storagePath,
+    participants,
   });
 }
 
@@ -294,7 +335,7 @@ async function finalizeSegment(session, startNext) {
       const uploaded = await uploadSegment(session, segmentIndex, oggPath);
       if (uploaded) {
         await postSegmentLink(session, segmentIndex, uploaded.url);
-        await registerInArchive(session, segmentIndex, uploaded.storagePath);
+        await registerInArchive(session, segment, segmentIndex, uploaded.storagePath);
       }
     }
   } catch (err) {

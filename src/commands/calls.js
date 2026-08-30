@@ -23,6 +23,7 @@ import {
   addComment,
   getComments,
   getListenUrl,
+  getParticipants,
 } from '../callArchive.js';
 
 export const data = new SlashCommandBuilder()
@@ -109,10 +110,24 @@ function getRecordingListPayload(authorId, category, recordings) {
   return { flags: 32768, components };
 }
 
+function formatMinutes(seconds) {
+  const minutes = Math.round(seconds / 60);
+  return minutes > 0 ? `${minutes}min` : '<1min';
+}
+
 async function getRecordingDetailPayload(authorId, recording) {
-  const comments = await getComments(recording.id, 5);
+  const [comments, participants] = await Promise.all([getComments(recording.id, 5), getParticipants(recording.id)]);
+
   const commentsText =
     comments.length > 0 ? comments.map((c) => `**${c.username}:** ${c.content}`).join('\n') : '_Nenhum comentário ainda._';
+
+  const participantsText =
+    participants.length > 0
+      ? participants
+          .slice(0, 8)
+          .map((p) => `${p.spoke ? '🎙️' : '👂'} ${p.username} — ${formatMinutes(p.presence_seconds)}`)
+          .join('\n')
+      : '_Nenhum participante registrado._';
 
   const title = recording.title || `${recording.channel_name} — sem título`;
   const category = recording.category || 'Sem categoria';
@@ -120,6 +135,8 @@ async function getRecordingDetailPayload(authorId, recording) {
 
   const containerComponents = [
     { type: 10, content: `# 🎙️ ${title}\n📁 Categoria: **${category}**\n🗓️ <t:${createdTs}:f>` },
+    { type: 14, divider: true, spacing: 1 },
+    { type: 10, content: `**Participantes:**\n${participantsText}` },
     { type: 14, divider: true, spacing: 1 },
     {
       type: 10,
