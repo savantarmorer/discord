@@ -253,6 +253,55 @@ discord-bot/
 
 ---
 
+## 🎧 Bot de Reprodução (opcional)
+
+Um **segundo bot**, processo e serviço Render separados (`src/player/`), que toca gravações arquivadas numa sala de voz dedicada. Precisa ser um bot separado porque o Discord só permite uma conexão de voz por servidor por token — o bot principal já usa a dele para gravar a call ao vivo.
+
+### 1. Crie uma segunda aplicação no Discord Developer Portal
+
+Mesmo processo do bot principal (seção 3 acima), mas um app **novo e separado**:
+1. [discord.com/developers/applications](https://discord.com/developers/applications) → **New Application**
+2. **Bot** → copie o Token → essa é a `PLAYER_BOT_TOKEN`
+3. **General Information** → copie o Application ID → essa é a `PLAYER_BOT_CLIENT_ID`
+4. **OAuth2 > URL Generator** → Scopes: `bot`, `applications.commands` → Bot Permissions: `Connect`, `Speak`, `View Channels` → convide esse bot ao mesmo servidor
+
+### 2. Crie o canal de voz dedicado
+
+Um canal de voz normal no servidor (ex.: "🎧 Sala de Reprodução"). Copie o ID do canal (modo desenvolvedor ativado → botão direito → Copiar ID).
+
+### 3. Configure um segundo serviço no Render
+
+Mesmo repositório GitHub do bot principal, mas um **novo serviço** (Background Worker):
+- **Root Directory**: `src` (igual ao bot principal)
+- **Build Command**: `npm install`
+- **Start Command**: `node player/index.js`
+- **Environment Variables**:
+  ```env
+  PLAYER_BOT_TOKEN=token_do_segundo_app
+  PLAYER_BOT_CLIENT_ID=client_id_do_segundo_app
+  DISCORD_GUILD_ID=mesmo_guild_id_do_bot_principal
+  PLAYER_VOICE_CHANNEL_ID=id_do_canal_de_voz_dedicado
+  SUPABASE_URL=mesma_url_do_bot_principal
+  SUPABASE_KEY=mesma_chave_do_bot_principal
+  SUPABASE_SERVICE_KEY=mesma_service_role_key_do_bot_principal
+  CALLS_ARCHIVE_ROLE_ID=mesmo_cargo_do_arquivo_de_calls
+  ```
+
+### Comandos
+
+| Comando | Descrição |
+|---|---|
+| `/tocar` | Abre o mesmo menu de categoria → gravação do `/calls`; ao selecionar, entra na sala e começa a tocar |
+| `/pause` | Pausa a reprodução atual |
+| `/continuar` | Retoma a reprodução pausada |
+| `/pular` | Pula para a próxima parte da mesma call (se ela tiver mais de 30min, dividida em blocos) |
+| `/parar` | Para a reprodução e sai do canal de voz |
+| `/status` | Mostra o que está tocando agora |
+
+Como as gravações já são `.ogg`/Opus (mesmo formato que o Discord usa), elas tocam direto sem precisar reprocessar com ffmpeg.
+
+---
+
 ## 🚀 Deploy em Produção
 
 Recomendações de hosting para processos persistentes:

@@ -6,13 +6,18 @@
 // que database.js — o upload de arquivo em si usa a service_role em
 // callRecorder.js, mas ler/escrever linhas nessas tabelas segue o mesmo
 // padrão do resto do bot.
+//
+// Lê as variáveis de ambiente do Supabase diretamente (não via config.js)
+// porque este módulo é compartilhado pelo bot principal E pelo bot de
+// reprodução (src/player) — cada um tem seu próprio conjunto de variáveis
+// obrigatórias, e importar config.js aqui forçaria o bot de reprodução a
+// também precisar de DISCORD_TOKEN/DISCORD_CLIENT_ID do bot principal.
 
 import { createClient } from '@supabase/supabase-js';
-import { config } from './config.js';
 
-const supabase = createClient(config.supabaseUrl, config.supabaseKey);
-const serviceSupabase = config.supabaseServiceKey
-  ? createClient(config.supabaseUrl, config.supabaseServiceKey)
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+const serviceSupabase = process.env.SUPABASE_SERVICE_KEY
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
   : null;
 
 /**
@@ -116,6 +121,26 @@ export async function getRecordingById(id) {
   if (error) {
     console.error(`❌ [CALL-ARCHIVE] Erro ao buscar gravação ${id}:`, error.message);
     return null;
+  }
+  return data;
+}
+
+/**
+ * Lista todas as partes (segmentos) da mesma sessão de gravação, em ordem —
+ * usado pelo bot de reprodução para enfileirar automaticamente o resto de
+ * uma call de mais de 30 minutos.
+ */
+export async function getSessionSegments(sessionId, fromSegmentIndex = 0) {
+  const { data, error } = await supabase
+    .from('call_recordings')
+    .select('*')
+    .eq('session_id', sessionId)
+    .gte('segment_index', fromSegmentIndex)
+    .order('segment_index', { ascending: true });
+
+  if (error) {
+    console.error(`❌ [CALL-ARCHIVE] Erro ao buscar partes da sessão ${sessionId}:`, error.message);
+    return [];
   }
   return data;
 }
