@@ -215,6 +215,15 @@ export async function joinChannel(channel, client) {
 
   } catch (error) {
     console.error(`❌ [VOZ] Erro ao conectar no canal ${channel.name}:`, error.message);
+    // Se a conexão chegou a ser criada (ex.: timeout esperando Ready), destrói
+    // explicitamente — sem isso ela fica tentando conectar indefinidamente,
+    // presa em memória, mesmo já removida do nosso próprio controle abaixo.
+    const entry = activeConnections.get(channel.id);
+    try {
+      entry?.connection.destroy();
+    } catch {
+      // Já destruída ou nunca chegou a existir
+    }
     activeConnections.delete(channel.id);
   }
 }

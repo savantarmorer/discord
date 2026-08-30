@@ -21,6 +21,13 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(interaction) {
   const targetUser = interaction.options.getUser('membro');
+  if (!targetUser) {
+    return interaction.reply({
+      content: '❌ Mencione um membro válido. Ex.: `/repetir membro:@usuario` ou `%repetir @usuario`.',
+      ephemeral: true,
+    });
+  }
+
   const guildId = interaction.guildId;
 
   // Busca a conexão de voz ativa

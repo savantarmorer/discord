@@ -101,11 +101,35 @@ export function startSession(guildId, channelId, channelName, client) {
   console.log(`🎙️ [CALL-REC] Sessão de gravação iniciada: ${channelName} (${sessionId})`);
 }
 
+// Buffer de silêncio reutilizável para preencher pequenos gaps dentro de uma
+// mesma faixa (pausas entre falas do mesmo usuário). NUNCA alocar um buffer
+// do tamanho do gap inteiro de uma vez — na instância de 512MB, um usuário
+// que só fala perto do fim de um segmento de 30min geraria uma alocação de
+// centenas de MB numa chamada síncrona só. O deslocamento entre o início do
+// segmento e a primeira fala de cada usuário é resolvido depois, no ffmpeg
+// (filtro adelay em mixSegmentToOgg), não aqui.
+const SILENCE_CHUNK = Buffer.alloc(65536); // 64KB ≈ 341ms de silêncio estéreo 16-bit
+
+function writeSilenceBounded(writeStream, bytes) {
+  let remaining = bytes;
+  while (remaining > 0) {
+    const n = Math.min(remaining, SILENCE_CHUNK.length);
+    writeStream.write(n === SILENCE_CHUNK.length ? SILENCE_CHUNK : SILENCE_CHUNK.subarray(0, n));
+    remaining -= n;
+  }
+}
+
 function getOrCreateTrack(segment, userId, username) {
   let track = segment.tracks.get(userId);
   if (!track) {
     const filePath = path.join(segment.segmentDir, `${userId}.pcm`);
-    track = { username, filePath, writeStream: fs.createWriteStream(filePath), bytesWritten: 0 };
+    track = {
+      username,
+      filePath,
+      writeStream: fs.createWriteStream(filePath),
+      bytesWritten: 0,
+      startedAt: Date.now(), // quando esta faixa começou a receber áudio (não o início do segmento)
+    };
     segment.tracks.set(userId, track);
   }
   return track;
@@ -117,9 +141,10 @@ function getOrCreateTrack(segment, userId, username) {
  * usuário faz o @discordjs/voice reaproveitar a MESMA stream, então duas
  * gravações independentes acabavam compartilhando (e destruindo) o mesmo
  * fluxo de áudio). Esta função é só um "sink": grava na faixa do usuário
- * dentro do segmento atual, resincronizando com o tempo real apenas
- * quando o atraso acumulado passa de REALIGN_THRESHOLD_MS — jitter normal
- * de rede fica abaixo disso e é ignorado, evitando microcortes.
+ * dentro do segmento atual, resincronizando com o tempo real (desde que
+ * a faixa começou) apenas quando o atraso acumulado passa de
+ * REALIGN_THRESHOLD_MS — jitter normal de rede fica abaixo disso e é
+ * ignorado, evitando microcortes dentro da própria fala.
  */
 export function writeAudioChunk(guildId, userId, username, chunk) {
   const session = activeSessions.get(guildId);
@@ -127,14 +152,14 @@ export function writeAudioChunk(guildId, userId, username, chunk) {
 
   const track = getOrCreateTrack(session.segment, userId, username);
 
-  const elapsedMs = Date.now() - session.segment.startedAt;
+  const elapsedMs = Date.now() - track.startedAt;
   const expectedBytes = alignToBlock(elapsedMs * BYTES_PER_MS);
-  const gapMs = (expectedBytes - track.bytesWritten) / BYTES_PER_MS;
+  const gapBytes = expectedBytes - track.bytesWritten;
 
-  if (gapMs > REALIGN_THRESHOLD_MS) {
-    const silence = Buffer.alloc(alignToBlock(expectedBytes - track.bytesWritten));
-    track.writeStream.write(silence);
-    track.bytesWritten += silence.length;
+  if (gapBytes / BYTES_PER_MS > REALIGN_THRESHOLD_MS) {
+    const aligned = alignToBlock(gapBytes);
+    writeSilenceBounded(track.writeStream, aligned);
+    track.bytesWritten += aligned;
   }
 
   track.writeStream.write(chunk);
@@ -160,6 +185,12 @@ function runFfmpeg(args) {
  * Mixa as faixas .pcm de um segmento em um único .ogg (Opus) via ffmpeg,
  * usando arquivos em disco (não bufferiza tudo em memória — importante
  * pois a instância roda com pouca RAM).
+ *
+ * Cada faixa só começa a existir quando o usuário fala pela primeira vez
+ * (getOrCreateTrack), então seu .pcm não tem o silêncio desde o início do
+ * segmento. Esse deslocamento é aplicado aqui via o filtro `adelay` do
+ * ffmpeg (processado em C, sem custo de memória no Node) em vez de
+ * escrever o silêncio no arquivo em JS.
  */
 async function mixSegmentToOgg(segment) {
   const tracks = [...segment.tracks.values()].filter((t) => t.bytesWritten > 0);
@@ -170,9 +201,16 @@ async function mixSegmentToOgg(segment) {
   for (const t of tracks) {
     args.push('-f', 's16le', '-ar', String(PCM_SAMPLE_RATE), '-ac', String(PCM_CHANNELS), '-i', t.filePath);
   }
-  if (tracks.length > 1) {
-    args.push('-filter_complex', `amix=inputs=${tracks.length}:duration=longest`);
-  }
+
+  const delaySteps = tracks.map((t, i) => {
+    const delayMs = Math.max(0, Math.round(t.startedAt - segment.startedAt));
+    return `[${i}:a]adelay=${delayMs}:all=1[d${i}]`;
+  });
+  const delayedLabels = tracks.map((_, i) => `[d${i}]`).join('');
+  const mixStep =
+    tracks.length > 1 ? `${delayedLabels}amix=inputs=${tracks.length}:duration=longest` : `${delayedLabels}anull`;
+
+  args.push('-filter_complex', [...delaySteps, mixStep].join(';'));
   args.push('-c:a', 'libopus', '-b:a', '64k', outputPath);
 
   await runFfmpeg(args);

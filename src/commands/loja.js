@@ -113,6 +113,9 @@ export async function execute(interaction) {
   if (command) {
     const targetUser = interaction.options.getUser('alvo');
 
+    if (!targetUser) {
+      return interaction.editReply(getErrorPayload('Mencione um alvo válido. Ex.: `/loja chute alvo:@usuario` ou `%loja chute @usuario`.'));
+    }
     if (targetUser.id === executor.id) {
       return interaction.editReply(getErrorPayload('Você não pode usar itens em si mesmo, gênio.'));
     }
