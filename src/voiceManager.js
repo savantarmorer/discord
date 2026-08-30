@@ -78,7 +78,8 @@ function recordUserVoice(connection, userId, username) {
       clearTimeout(recordingTimeout);
       recordingUsers.delete(userId);
       if (err) {
-        if (!err.message.includes('premature close') && !err.message.includes('destroyed')) {
+        const msg = err.message.toLowerCase();
+        if (!msg.includes('premature close') && !msg.includes('destroyed')) {
           console.error(`❌ [REC] Erro ao gravar voz de ${username}:`, err.message);
         }
       } else {
