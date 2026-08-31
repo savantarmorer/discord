@@ -14,6 +14,7 @@
 // também precisar de DISCORD_TOKEN/DISCORD_CLIENT_ID do bot principal.
 
 import { createClient } from '@supabase/supabase-js';
+import fs from 'fs';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const serviceSupabase = process.env.SUPABASE_SERVICE_KEY
@@ -143,6 +144,61 @@ export async function getSessionSegments(sessionId, fromSegmentIndex = 0) {
     return [];
   }
   return data;
+}
+
+/**
+ * Gravações que ainda não têm vídeo gerado (usado pelo worker de vídeo do
+ * bot de reprodução), mais recentes primeiro.
+ */
+export async function getRecordingsWithoutVideo(guildId, limit = 1) {
+  const { data, error } = await supabase
+    .from('call_recordings')
+    .select('*')
+    .eq('guild_id', guildId)
+    .is('video_storage_path', null)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error('❌ [CALL-ARCHIVE] Erro ao buscar gravações sem vídeo:', error.message);
+    return [];
+  }
+  return data;
+}
+
+export async function setVideoPath(recordingId, videoStoragePath) {
+  const { error } = await supabase
+    .from('call_recordings')
+    .update({ video_storage_path: videoStoragePath })
+    .eq('id', recordingId);
+
+  if (error) {
+    console.error(`❌ [CALL-ARCHIVE] Erro ao salvar caminho do vídeo da gravação ${recordingId}:`, error.message);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Envia o .mp4 gerado localmente para o mesmo bucket das gravações de áudio.
+ * Requer SUPABASE_SERVICE_KEY (bypassa RLS, mesmo padrão do upload de áudio).
+ */
+export async function uploadVideo(storagePath, localFilePath) {
+  if (!serviceSupabase) {
+    console.error('❌ [CALL-ARCHIVE] SUPABASE_SERVICE_KEY não definida — não é possível enviar o vídeo.');
+    return false;
+  }
+
+  const fileBuffer = await fs.promises.readFile(localFilePath);
+  const { error } = await serviceSupabase.storage
+    .from('call-recordings')
+    .upload(storagePath, fileBuffer, { contentType: 'video/mp4', upsert: true });
+
+  if (error) {
+    console.error(`❌ [CALL-ARCHIVE] Erro ao enviar vídeo ${storagePath}:`, error.message);
+    return false;
+  }
+  return true;
 }
 
 /**

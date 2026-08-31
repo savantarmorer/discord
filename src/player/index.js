@@ -8,6 +8,7 @@ import { Client, GatewayIntentBits, Collection, Events } from 'discord.js';
 import http from 'http';
 import { playerConfig } from './config.js';
 import { deployPlayerCommands } from './deploy.js';
+import { startVideoWorker } from './videoWorker.js';
 
 import * as tocarCommand from './commands/tocar.js';
 import * as pauseCommand from './commands/pause.js';
@@ -34,6 +35,8 @@ client.once(Events.ClientReady, (readyClient) => {
   console.log(`🎧 Bot de reprodução conectado como: ${readyClient.user.tag}`);
   console.log('═══════════════════════════════════════════');
   console.log('');
+
+  startVideoWorker(readyClient);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

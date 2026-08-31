@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS call_recordings (
   downvotes INTEGER NOT NULL DEFAULT 0,
   comment_count INTEGER NOT NULL DEFAULT 0,
   listen_count INTEGER NOT NULL DEFAULT 0,
+  video_storage_path TEXT,
   renamed_by TEXT,
   renamed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -299,6 +300,10 @@ Mesmo repositório GitHub do bot principal, mas um **novo serviço** (Background
 | `/status` | Mostra o que está tocando agora |
 
 Como as gravações já são `.ogg`/Opus (mesmo formato que o Discord usa), elas tocam direto sem precisar reprocessar com ffmpeg.
+
+### Geração automática de vídeo
+
+O mesmo processo do bot de reprodução também roda, em segundo plano, um worker que converte cada gravação de áudio pendente num `.mp4` com visualização de onda sonora (filtro `showwaves` do ffmpeg — sem precisar de nenhuma imagem externa), pronto pra upload manual no YouTube. Checa por uma gravação sem vídeo a cada 5 minutos, processa uma de cada vez, envia o resultado pro mesmo bucket do Storage e posta o link em `RECORDINGS_CHANNEL_ID` (mesma variável já usada pelo bot principal — pode reaproveitar o mesmo canal). Não sobe nada pro YouTube automaticamente — isso continua manual.
 
 ---
 

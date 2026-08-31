@@ -29,4 +29,8 @@ export const playerConfig = {
   guildId: process.env.DISCORD_GUILD_ID,
   voiceChannelId: process.env.PLAYER_VOICE_CHANNEL_ID,
   callsArchiveRoleId: process.env.CALLS_ARCHIVE_ROLE_ID,
+  // Opcional — canal de texto onde o worker de vídeo posta o link de cada
+  // vídeo gerado (mesma variável já usada pelo bot principal para os links
+  // de áudio; pode ser o mesmo canal ou um diferente).
+  recordingsChannelId: process.env.RECORDINGS_CHANNEL_ID,
 };
