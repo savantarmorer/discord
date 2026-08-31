@@ -32,6 +32,12 @@ const REALIGN_THRESHOLD_MS = 200;
 
 const SEGMENT_DURATION_MS = 30 * 60 * 1000; // divide a gravação a cada 30 minutos
 
+// Descarta o segmento (não mixa, não sobe, não registra no arquivo) se a
+// fala somada de todo mundo ficar abaixo disso — call vazia ou "oi, tchau"
+// não vale a pena guardar. Zero fala (ninguém falou) já é descartado à
+// parte, isso aqui é o limiar de "quase vazia".
+const MIN_SPEAKING_MS_TO_ARCHIVE = 60_000; // 60s
+
 const RECORDINGS_DIR = path.resolve('./recordings/sessions');
 fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
 
@@ -328,6 +334,16 @@ async function finalizeSegment(session, startNext) {
   await Promise.all(
     [...segment.tracks.values()].map((t) => new Promise((resolve) => t.writeStream.end(resolve)))
   );
+
+  const totalSpeakingMs = [...segment.tracks.values()].reduce((sum, t) => sum + t.bytesWritten / BYTES_PER_MS, 0);
+  if (totalSpeakingMs < MIN_SPEAKING_MS_TO_ARCHIVE) {
+    console.log(
+      `🎙️ [CALL-REC] Segmento ${segmentIndex} de "${session.channelName}" descartado ` +
+        `(${Math.round(totalSpeakingMs / 1000)}s de fala — abaixo do mínimo de ${MIN_SPEAKING_MS_TO_ARCHIVE / 1000}s).`
+    );
+    await fs.promises.rm(segment.segmentDir, { recursive: true, force: true }).catch(() => null);
+    return;
+  }
 
   try {
     const oggPath = await mixSegmentToOgg(segment);
