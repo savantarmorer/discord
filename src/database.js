@@ -109,30 +109,35 @@ export async function getOrCreateUser(userId, username) {
 export async function addPresenceTime(userId, username, seconds) {
   if (seconds <= 0) return { leveledUp: false };
 
-  // Busca o valor atual
+  // Busca o valor atual só para saber o nível ANTES (comparação de level-up)
   const user = await getOrCreateUser(userId, username);
   if (!user) return { leveledUp: false };
 
   const { getLevelData } = await import('./utils/levels.js');
   const oldLvl = getLevelData(user.total_presence_time || 0, user.total_speaking_time || 0, user.bonus_xp || 0).level;
 
-  const newTotal = (user.total_presence_time || 0) + Math.floor(seconds);
+  // Incremento atômico via RPC (UPDATE ... SET x = x + $1 ... RETURNING) — evita
+  // a corrida de "ler total, somar em JS, escrever de volta": duas chamadas
+  // concorrentes para o mesmo usuário (ex.: o flush periódico de 5min e o
+  // stopPresenceTracking ao sair do canal, batendo no mesmo instante) faziam
+  // uma sobrescrever o incremento da outra, perdendo segundos de presença.
+  const { data, error } = await supabase.rpc('increment_presence_time', {
+    p_user_id: userId,
+    p_seconds: Math.floor(seconds),
+  });
 
-  const { error } = await supabase
-    .from('voice_metrics')
-    .update({
-      total_presence_time: newTotal,
-      username: username, // Atualiza o nome caso tenha mudado
-      last_connected: new Date().toISOString(),
-    })
-    .eq('user_id', userId);
-
-  if (error) {
-    console.error(`❌ Erro ao salvar presença de ${username}:`, error.message);
+  if (error || !data || data.length === 0) {
+    console.error(`❌ Erro ao salvar presença de ${username}:`, error?.message || 'RPC não retornou dados');
     return { leveledUp: false };
   }
 
-  const newLvl = getLevelData(newTotal, user.total_speaking_time || 0, user.bonus_xp || 0);
+  // Sincroniza o nome separadamente (não crítico o suficiente pra precisar ser atômico)
+  if (user.username !== username) {
+    await supabase.from('voice_metrics').update({ username }).eq('user_id', userId);
+  }
+
+  const updated = data[0];
+  const newLvl = getLevelData(updated.total_presence_time, updated.total_speaking_time, updated.bonus_xp);
   if (newLvl.level > oldLvl) {
     return { leveledUp: true, oldLevel: oldLvl, newLevel: newLvl.level, rank: newLvl.rank };
   }
@@ -155,22 +160,27 @@ export async function addSpeakingTime(userId, username, seconds) {
   const { getLevelData } = await import('./utils/levels.js');
   const oldLvl = getLevelData(user.total_presence_time || 0, user.total_speaking_time || 0, user.bonus_xp || 0).level;
 
-  const newTotal = (user.total_speaking_time || 0) + Math.floor(seconds);
+  // Mesmo incremento atômico via RPC que addPresenceTime — este é o que mais
+  // sofria com a corrida: além do flush periódico e do fim de fala, um drop
+  // de conquista duplicada também chama addSpeakingTime (bônus de XP) bem no
+  // meio de alguém falando, exatamente quando as outras chamadas também
+  // costumam disparar.
+  const { data, error } = await supabase.rpc('increment_speaking_time', {
+    p_user_id: userId,
+    p_seconds: Math.floor(seconds),
+  });
 
-  const { error } = await supabase
-    .from('voice_metrics')
-    .update({
-      total_speaking_time: newTotal,
-      username: username,
-    })
-    .eq('user_id', userId);
-
-  if (error) {
-    console.error(`❌ Erro ao salvar tempo de fala de ${username}:`, error.message);
+  if (error || !data || data.length === 0) {
+    console.error(`❌ Erro ao salvar tempo de fala de ${username}:`, error?.message || 'RPC não retornou dados');
     return { leveledUp: false };
   }
 
-  const newLvl = getLevelData(user.total_presence_time || 0, newTotal, user.bonus_xp || 0);
+  if (user.username !== username) {
+    await supabase.from('voice_metrics').update({ username }).eq('user_id', userId);
+  }
+
+  const updated = data[0];
+  const newLvl = getLevelData(updated.total_presence_time, updated.total_speaking_time, updated.bonus_xp);
   if (newLvl.level > oldLvl) {
     return { leveledUp: true, oldLevel: oldLvl, newLevel: newLvl.level, rank: newLvl.rank };
   }

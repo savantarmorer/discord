@@ -66,6 +66,37 @@ CREATE POLICY "Allow all operations for service role"
   WITH CHECK (true);
 
 -- ============================================
+-- Incremento atômico de tempo de presença/fala
+-- ============================================
+-- addPresenceTime/addSpeakingTime usam essas funções em vez de ler o total
+-- e escrever de volta em JS — duas chamadas concorrentes pro mesmo usuário
+-- (ex.: o flush periódico de 5min e o evento de sair do canal, batendo no
+-- mesmo instante) faziam uma sobrescrever o incremento da outra, perdendo
+-- segundos de presença/fala e deixando os níveis dessincronizados.
+CREATE OR REPLACE FUNCTION increment_presence_time(p_user_id TEXT, p_seconds INTEGER)
+RETURNS TABLE(total_presence_time INTEGER, total_speaking_time INTEGER, bonus_xp INTEGER) AS $$
+BEGIN
+  RETURN QUERY
+  UPDATE voice_metrics
+  SET total_presence_time = voice_metrics.total_presence_time + p_seconds,
+      last_connected = now()::text
+  WHERE user_id = p_user_id
+  RETURNING voice_metrics.total_presence_time, voice_metrics.total_speaking_time, voice_metrics.bonus_xp;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION increment_speaking_time(p_user_id TEXT, p_seconds INTEGER)
+RETURNS TABLE(total_presence_time INTEGER, total_speaking_time INTEGER, bonus_xp INTEGER) AS $$
+BEGIN
+  RETURN QUERY
+  UPDATE voice_metrics
+  SET total_speaking_time = voice_metrics.total_speaking_time + p_seconds
+  WHERE user_id = p_user_id
+  RETURNING voice_metrics.total_presence_time, voice_metrics.total_speaking_time, voice_metrics.bonus_xp;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================
 -- Arquivo de gravações de calls (/calls, /renomearcall)
 -- ============================================
 CREATE TABLE IF NOT EXISTS call_recordings (
