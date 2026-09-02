@@ -260,7 +260,7 @@ export function getLevelEmbedsAndComponents(authorId, targetUser, metrics, badge
   const showBadges = getShowBadgesSetting(targetUser.id);
   const btnToggle = new ButtonBuilder()
     .setCustomId(`level:toggleBadges:${authorId}:${targetUser.id}`)
-    .setLabel(showBadges ? 'Tags no Nome: Sim' : 'Tags no Nome: Não')
+    .setLabel(showBadges ? 'Emojis no Nome: Sim' : 'Emojis no Nome: Não')
     .setEmoji(showBadges ? '🏷️' : '✖️')
     .setStyle(showBadges ? ButtonStyle.Success : ButtonStyle.Danger)
     .setDisabled(authorId !== targetUser.id);

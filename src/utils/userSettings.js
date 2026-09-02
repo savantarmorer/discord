@@ -29,14 +29,16 @@ function saveSettings(settings) {
 }
 
 /**
- * Retorna se o usuário deseja exibir as tags de conquistas no apelido.
- * Retorna true por padrão (opt-out).
+ * Retorna se o usuário deseja exibir os EMOJIS de conquista no apelido
+ * (o sufixo [+x] com o total de conquistas aparece sempre, independente
+ * disso). Retorna false por padrão (opt-in) — o padrão do servidor é só
+ * o [+x], sem os emojis.
  * @param {string} userId - ID do usuário Discord
  * @returns {boolean}
  */
 export function getShowBadgesSetting(userId) {
   const settings = loadSettings();
-  return settings[userId] !== false;
+  return settings[userId] === true;
 }
 
 /**

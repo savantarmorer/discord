@@ -588,66 +588,67 @@ export function computeNewNickname(member, existingBadges, rarityStats) {
     cleanName = member.user?.username || 'User';
   }
 
-  // Se o usuário optou por NÃO mostrar as conquistas no nome, retorna apenas o nome limpo
-  if (!getShowBadgesSetting(userId)) {
-    const finalCleanName = sliceSafe(cleanName, 32).trim();
-    return { newName: finalCleanName, currentName, cleanName: finalCleanName };
-  }
+  // O sufixo [+x] (total de conquistas) aparece sempre que o usuário tiver
+  // pelo menos uma. Os EMOJIS de conquista são opt-in — só entram se o
+  // usuário tiver ativado em /level (padrão do servidor: só o [+x]).
+  const totalBadgeLevel = existingBadges ? existingBadges.length : 0;
+  let tagsToDisplay = [];
 
-  // Conta conquistas por nome base
-  const badgeCounts = {};
-  if (existingBadges && existingBadges.length > 0) {
-    existingBadges.forEach(b => {
-      badgeCounts[b.badge_name] = (badgeCounts[b.badge_name] || 0) + 1;
-    });
-  }
-
-  // Coleciona as conquistas ativas do usuário e suas tags
-  const activeBadgesList = [];
-  for (const loot of LOOT_TABLE) {
-    const count = badgeCounts[loot.name] || 0;
-    if (count > 0) {
-      const badgeInfo = getCurrentBadgeInfo(loot, count);
-      activeBadgesList.push({
-        name: loot.name,
-        tag: badgeInfo.tag
+  if (getShowBadgesSetting(userId)) {
+    // Conta conquistas por nome base
+    const badgeCounts = {};
+    if (existingBadges && existingBadges.length > 0) {
+      existingBadges.forEach(b => {
+        badgeCounts[b.badge_name] = (badgeCounts[b.badge_name] || 0) + 1;
       });
     }
-  }
 
-  // Ordena do mais raro para o mais comum (menor contagem global no banco = mais raro)
-  activeBadgesList.sort((a, b) => {
-    const countA = rarityStats[a.name] !== undefined ? rarityStats[a.name] : Infinity;
-    const countB = rarityStats[b.name] !== undefined ? rarityStats[b.name] : Infinity;
-    return countA - countB;
-  });
-
-  // Pega as selecionadas pelo usuário ou, se não houver, os 3 mais raros
-  const userSelected = getUserSelectedBadges(userId);
-  let displayBadges = [];
-  if (userSelected && userSelected.length > 0) {
-    for (const name of userSelected) {
-      const found = activeBadgesList.find(b => b.name === name);
-      if (found) {
-        displayBadges.push(found);
+    // Coleciona as conquistas ativas do usuário e suas tags
+    const activeBadgesList = [];
+    for (const loot of LOOT_TABLE) {
+      const count = badgeCounts[loot.name] || 0;
+      if (count > 0) {
+        const badgeInfo = getCurrentBadgeInfo(loot, count);
+        activeBadgesList.push({
+          name: loot.name,
+          tag: badgeInfo.tag
+        });
       }
     }
-  } else {
-    displayBadges = activeBadgesList.slice(0, 3);
+
+    // Ordena do mais raro para o mais comum (menor contagem global no banco = mais raro)
+    activeBadgesList.sort((a, b) => {
+      const countA = rarityStats[a.name] !== undefined ? rarityStats[a.name] : Infinity;
+      const countB = rarityStats[b.name] !== undefined ? rarityStats[b.name] : Infinity;
+      return countA - countB;
+    });
+
+    // Pega as selecionadas pelo usuário ou, se não houver, os 3 mais raros
+    const userSelected = getUserSelectedBadges(userId);
+    let displayBadges = [];
+    if (userSelected && userSelected.length > 0) {
+      for (const name of userSelected) {
+        const found = activeBadgesList.find(b => b.name === name);
+        if (found) {
+          displayBadges.push(found);
+        }
+      }
+    } else {
+      displayBadges = activeBadgesList.slice(0, 3);
+    }
+
+    tagsToDisplay = displayBadges.map(b => b.tag);
   }
 
-  const tagsToDisplay = displayBadges.map(b => b.tag);
-  let tagSuffix = tagsToDisplay.join(' ');
-  
-  // O sufixo [+x] representa a soma de todas as conquistas do usuário (ilimitado, somando a cada drop/evolução)
-  const totalBadgeLevel = existingBadges ? existingBadges.length : 0;
+  const suffixParts = [...tagsToDisplay];
   if (totalBadgeLevel > 0) {
-    tagSuffix += ` [+${totalBadgeLevel}]`;
+    suffixParts.push(`[+${totalBadgeLevel}]`);
   }
+  const tagSuffix = suffixParts.join(' ');
 
-  // Junta as tags ativas ao final do nome limpo usando sliceSafe para evitar ultrapassar 32 chars
-  let newName = cleanName;
-  if (tagsToDisplay.length > 0) {
+  // Junta o sufixo ao final do nome limpo usando sliceSafe para evitar ultrapassar 32 chars
+  let newName;
+  if (tagSuffix.length > 0) {
     const suffix = ` ${tagSuffix}`;
     const maxCleanLength = 32 - suffix.length;
     cleanName = sliceSafe(cleanName, maxCleanLength).trim();
