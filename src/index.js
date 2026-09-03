@@ -38,7 +38,11 @@ import {
 } from './voiceManager.js';
 import { startClimateEngine } from './climate.js';
 import { speakRandomPhrase } from './utils/speech.js';
-import { buildArgReply } from './utils/argSystem.js';
+import {
+  buildArgReply,
+  registerChallenge as registerArgChallenge,
+  checkGuess as checkArgGuess,
+} from './utils/argSystem.js';
 
 // Importa os comandos e script de deploy
 import * as statusvozCommand from './commands/statusvoz.js';
@@ -162,8 +166,9 @@ client.once(Events.ClientReady, async (readyClient) => {
   // Inicia motor de eventos climáticos
   startClimateEngine(readyClient);
 
-  // Inicia o agendador de fala periódica
-  startPeriodicSpeechScheduler(readyClient);
+  // Agendador de fala periódica DESATIVADO — o bot tocava áudio na call
+  // com frequência demais e sem pedido; deixando desligado por padrão.
+  // startPeriodicSpeechScheduler(readyClient);
 
   // Inicia o agendador de curiosidades/engajamento periódicos no chat (primeiro em 3 minutos)
   // startPeriodicChatPromptScheduler(readyClient, true);
@@ -358,8 +363,19 @@ client.on(Events.MessageCreate, async (message) => {
   if (message.mentions.has(client.user) && Date.now() - lastArgMentionReplyAt > ARG_MENTION_COOLDOWN_MS) {
     lastArgMentionReplyAt = Date.now();
     buildArgReply()
-      .then((content) => message.reply({ content, allowedMentions: { repliedUser: false } }))
+      .then(async ({ content, fragmentIndex }) => {
+        const sent = await message.reply({ content, allowedMentions: { repliedUser: false } });
+        registerArgChallenge(sent.id, fragmentIndex);
+      })
       .catch((err) => console.error('❌ [ARG] Erro ao responder menção:', err.message));
+  }
+  // Confere se essa mensagem é uma resposta (reply) certa a um desafio do ARG em aberto
+  else if (message.reference) {
+    checkArgGuess(message)
+      .then((solved) => {
+        if (solved) message.react('👁️').catch(() => null);
+      })
+      .catch((err) => console.error('❌ [ARG] Erro ao conferir resposta:', err.message));
   }
 
   // Verifica se a mensagem começa com "$" ou "%"

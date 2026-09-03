@@ -176,6 +176,19 @@ INSERT INTO bot_arg_state (id, remaining_fragments) VALUES (1, '{}') ON CONFLICT
 
 ALTER TABLE bot_arg_state ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all operations for service role" ON bot_arg_state FOR ALL USING (true) WITH CHECK (true);
+
+-- Quem resolveu cada fragmento (Discord não expõe quem só *leu* uma
+-- mensagem — isso registra quem respondeu certo, que é o que dá pra saber).
+CREATE TABLE IF NOT EXISTS arg_solves (
+  id BIGSERIAL PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  username TEXT NOT NULL,
+  fragment_index INTEGER NOT NULL,
+  solved_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE arg_solves ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all operations for service role" ON arg_solves FOR ALL USING (true) WITH CHECK (true);
 ```
 
 ### 3. Configure o Bot no Discord Developer Portal

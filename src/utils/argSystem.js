@@ -161,11 +161,14 @@ async function consumeNextFragment() {
 // ============================================
 // Monta a mensagem de resposta
 // ============================================
+// Retorna { content, fragmentIndex } — fragmentIndex é null na revelação
+// completa (nada a "resolver" ali, a frase já saiu decifrada).
 export async function buildArgReply() {
   const { isFullReveal, index } = await consumeNextFragment();
 
   if (isFullReveal) {
-    return `${ARG_FULL_REVEAL_INTRO}\n\n**"${ARG_FULL_MESSAGE}"**\n\n*${ARG_FULL_REVEAL_OUTRO}*`;
+    const content = `${ARG_FULL_REVEAL_INTRO}\n\n**"${ARG_FULL_MESSAGE}"**\n\n*${ARG_FULL_REVEAL_OUTRO}*`;
+    return { content, fragmentIndex: null };
   }
 
   const fragment = ARG_FRAGMENTS[index];
@@ -177,5 +180,76 @@ export async function buildArgReply() {
   const preamble = ARG_PREAMBLES[Math.floor(Math.random() * ARG_PREAMBLES.length)];
   const glyph = ARG_GLYPHS[index % ARG_GLYPHS.length];
 
-  return `${preamble}\n\`\`\`\n${encoded}\n\`\`\`\n${glyph}`;
+  const content = `${preamble}\n\`\`\`\n${encoded}\n\`\`\`\n${glyph}`;
+  return { content, fragmentIndex: index };
+}
+
+// ============================================
+// Desafio ativo: quem responde certo primeiro "resolve" o fragmento
+// ============================================
+// Fica só em memória (não em Supabase, ao contrário da ordem dos
+// fragmentos) — se o bot reiniciar no meio de um desafio em aberto, ele
+// simplesmente se perde, o que é uma consequência bem menor do que perder
+// a ordem de revelação inteira. Discord não dá nenhuma forma de bot saber
+// quem *leu* uma mensagem (não existe API de confirmação de leitura) —
+// então "detectar quem viu" não é possível; o que dá pra fazer é detectar
+// quem RESPONDE corretamente, que é o que isso faz.
+let activeChallenge = null;
+
+function normalizeGuess(text) {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // remove acentos (marcas de combinação após NFD)
+    .replace(/[^\w\s]/g, '') // remove pontuação
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const CHALLENGE_TTL_MS = 30 * 60 * 1000; // desafio expira em 30min sem resposta certa
+
+/**
+ * Registra qual fragmento está "em aberto" logo após a mensagem cifrada
+ * ser enviada — só respostas em REPLY a essa mensagem específica contam.
+ */
+export function registerChallenge(messageId, fragmentIndex) {
+  if (fragmentIndex === null) return; // revelação completa não tem desafio
+  activeChallenge = {
+    messageId,
+    fragmentIndex,
+    normalizedAnswer: normalizeGuess(ARG_FRAGMENTS[fragmentIndex]),
+    expiresAt: Date.now() + CHALLENGE_TTL_MS,
+  };
+}
+
+async function recordSolve(userId, username, fragmentIndex) {
+  const { error } = await supabase
+    .from('arg_solves')
+    .insert({ user_id: userId, username, fragment_index: fragmentIndex });
+  if (error) {
+    console.error('❌ [ARG] Erro ao registrar solução:', error.message);
+  }
+}
+
+/**
+ * Confere se `message` é uma resposta (reply) correta ao desafio ativo.
+ * Se for, registra quem resolveu e consome o desafio (só a primeira
+ * resposta certa conta). Retorna true se acertou.
+ */
+export async function checkGuess(message) {
+  if (!activeChallenge) return false;
+  if (Date.now() > activeChallenge.expiresAt) {
+    activeChallenge = null;
+    return false;
+  }
+  if (message.reference?.messageId !== activeChallenge.messageId) return false;
+
+  const guess = normalizeGuess(message.content);
+  if (guess !== activeChallenge.normalizedAnswer) return false;
+
+  const { fragmentIndex } = activeChallenge;
+  activeChallenge = null; // consome — só quem acertar primeiro conta
+
+  await recordSolve(message.author.id, message.author.username, fragmentIndex);
+  return true;
 }
