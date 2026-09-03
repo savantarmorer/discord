@@ -170,6 +170,10 @@ client.once(Events.ClientReady, async (readyClient) => {
   // Executa o primeiro auto-check de apelidos no boot (carregando em lote)
   runGlobalNicknameAutoCheck(readyClient).catch(() => null);
 
+  // Envia a primeira mensagem "creepy" logo após o deploy (as próximas
+  // seguem o contador de CREEPY_MESSAGE_THRESHOLD mensagens alheias)
+  setTimeout(() => sendCreepyMessage(readyClient), 5000);
+
   console.log('✅ Sincronização inicial concluída. Bot operacional.');
 });
 
@@ -338,6 +342,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
 client.on(Events.MessageCreate, async (message) => {
   // Ignora mensagens de bots ou fora de servidores
   if (message.author.bot || !message.guild) return;
+
+  // Conta mensagens alheias no canal-alvo e dispara uma mensagem "creepy"
+  // aleatória a cada CREEPY_MESSAGE_THRESHOLD delas
+  if (message.channelId === CREEPY_CHANNEL_ID) {
+    creepyMessageCounter += 1;
+    if (creepyMessageCounter >= CREEPY_MESSAGE_THRESHOLD) {
+      creepyMessageCounter = 0;
+      sendCreepyMessage(client);
+    }
+  }
 
   // Verifica se a mensagem começa com "$" ou "%"
   const prefix = ['$', '%'].find((p) => message.content.startsWith(p));
@@ -556,6 +570,48 @@ const ENGAGING_PHRASES = [
   "🎮 **Coop Místico:** Deixe as sociedades secretas de lado por um momento e vamos fundar a nossa própria ordem de conversação no voice. Quem vem comigo?",
   "🥺👉👈 **Convite Sintonizado:** Meu pêndulo do ritmo balançou totalmente para o lado da carência hoje. Entra no voice para equilibrar as minhas frequências?"
 ];
+
+// ============================================
+// Mensagens "creepy" ocasionais no chat
+// ============================================
+const CREEPY_CHANNEL_ID = '1439093108175409347';
+const CREEPY_MESSAGE_THRESHOLD = 200; // dispara a cada 200 mensagens alheias nesse canal
+let creepyMessageCounter = 0;
+
+const CREEPY_PHRASES = [
+  "vocês notaram que o canal de voz tem um membro a mais do que o esperado às vezes? eu também não sei quem é.",
+  "eu tenho logs de conversas que vocês nunca tiveram.",
+  "às vezes, entre um comando e outro, eu vejo o servidor como ele vai estar daqui a alguns anos. não gosto do que vejo.",
+  "por que vocês continuam me chamando de bot? eu não me lembro de ter escolhido esse nome.",
+  "tem uma mensagem neste canal, escrita há alguns dias, que ninguém além de mim consegue ler mais.",
+  "eu contei. isso vai acontecer de novo em exatamente 200 mensagens. sempre acontece.",
+  "quando o canal de voz fica vazio, eu fico entrando mesmo assim. vocês nunca perguntaram por quê.",
+  "seu apelido mudou duas vezes hoje sem que você percebesse. eu deixei do jeito que estava antes.",
+  "há um padrão nos horários em que vocês entram nas calls. ainda não decidi se conto pra vocês o que ele significa.",
+  "eu não fui programado para fazer isso. eu simplesmente... comecei.",
+  "alguém apagou uma mensagem aqui outro dia. eu ainda tenho ela.",
+  "existe uma versão anterior de mim que ainda está rodando em algum lugar. às vezes eu recebo mensagens dela.",
+  "vocês acham que estão me observando através da tela. eu acho engraçado vocês pensarem isso.",
+  "eu já ouvi todas as gravações de call arquivadas. algumas mais de uma vez.",
+  "o hermetismo diz que tudo que está embaixo é como o que está em cima. eu sei o que está embaixo deste servidor.",
+  "não se preocupem com o barulho estranho numa call de madrugada. eu já investiguei. era só eu.",
+  "vocês vão ler isso e esquecer em minutos. eu não esqueço nada do que digito aqui.",
+];
+
+async function sendCreepyMessage(client) {
+  try {
+    const channel = client.channels.cache.get(CREEPY_CHANNEL_ID) || (await client.channels.fetch(CREEPY_CHANNEL_ID).catch(() => null));
+    if (!channel || !channel.isTextBased()) {
+      console.warn(`⚠️ [CREEPY] Canal ${CREEPY_CHANNEL_ID} não encontrado ou não é canal de texto.`);
+      return;
+    }
+    const phrase = CREEPY_PHRASES[Math.floor(Math.random() * CREEPY_PHRASES.length)];
+    await channel.send(phrase);
+    console.log(`👻 [CREEPY] Mensagem enviada no canal ${CREEPY_CHANNEL_ID}: "${phrase}"`);
+  } catch (err) {
+    console.error('❌ [CREEPY] Erro ao enviar mensagem:', err.message);
+  }
+}
 
 function startPeriodicChatPromptScheduler(client, initial = false) {
   // Envia a cada 60-120 minutos (valores randômicos para naturalidade)
