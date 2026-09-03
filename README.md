@@ -161,6 +161,21 @@ CREATE POLICY "Allow all operations for service role" ON call_recording_comments
 
 ALTER TABLE call_recording_participants ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all operations for service role" ON call_recording_participants FOR ALL USING (true) WITH CHECK (true);
+
+-- ============================================
+-- Estado do ARG de menção (src/utils/argSystem.js)
+-- ============================================
+-- Guarda a ordem embaralhada (e ainda não revelada) dos fragmentos —
+-- persistido porque o processo reinicia com frequência em deploy, e
+-- perder o progresso a cada redeploy arruinaria o "quebra-cabeça".
+CREATE TABLE IF NOT EXISTS bot_arg_state (
+  id INTEGER PRIMARY KEY,
+  remaining_fragments INTEGER[] NOT NULL DEFAULT '{}'
+);
+INSERT INTO bot_arg_state (id, remaining_fragments) VALUES (1, '{}') ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE bot_arg_state ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all operations for service role" ON bot_arg_state FOR ALL USING (true) WITH CHECK (true);
 ```
 
 ### 3. Configure o Bot no Discord Developer Portal

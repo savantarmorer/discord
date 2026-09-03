@@ -38,6 +38,7 @@ import {
 } from './voiceManager.js';
 import { startClimateEngine } from './climate.js';
 import { speakRandomPhrase } from './utils/speech.js';
+import { buildArgReply } from './utils/argSystem.js';
 
 // Importa os comandos e script de deploy
 import * as statusvozCommand from './commands/statusvoz.js';
@@ -353,10 +354,12 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  // Responde com algo perturbador/ARG sempre que o bot for @mencionado diretamente
+  // Responde com o ARG multi-camadas sempre que o bot for @mencionado diretamente
   if (message.mentions.has(client.user) && Date.now() - lastArgMentionReplyAt > ARG_MENTION_COOLDOWN_MS) {
     lastArgMentionReplyAt = Date.now();
-    sendArgMentionReply(message);
+    buildArgReply()
+      .then((content) => message.reply({ content, allowedMentions: { repliedUser: false } }))
+      .catch((err) => console.error('❌ [ARG] Erro ao responder menção:', err.message));
   }
 
   // Verifica se a mensagem começa com "$" ou "%"
@@ -584,7 +587,7 @@ const CREEPY_CHANNEL_ID = '1439093108175409347';
 const CREEPY_MESSAGE_THRESHOLD = 200; // dispara a cada 200 mensagens alheias nesse canal
 let creepyMessageCounter = 0;
 
-const ARG_MENTION_COOLDOWN_MS = 15_000; // evita spam de @bot @bot @bot disparando várias respostas seguidas
+const ARG_MENTION_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutos entre respostas de menção
 let lastArgMentionReplyAt = 0;
 
 const CREEPY_PHRASES = [
@@ -619,108 +622,6 @@ async function sendCreepyMessage(client) {
     console.log(`👻 [CREEPY] Mensagem enviada no canal ${CREEPY_CHANNEL_ID}: "${phrase}"`);
   } catch (err) {
     console.error('❌ [CREEPY] Erro ao enviar mensagem:', err.message);
-  }
-}
-
-// ============================================
-// Resposta "ARG" ao ser mencionado (@bot)
-// ============================================
-// Corrompe texto com marcas de combinação Unicode (efeito "zalgo").
-function zalgofy(text, intensity = 3) {
-  const marks = [
-    '̀', '́', '̂', '̃', '̄', '̅', '̆', '̇',
-    '̈', '̉', '̊', '̋', '̌', '̍', '̎', '̏',
-    '̐', '̑', '̒', '̓', '̔', '̕', '̚', '̛',
-    '̣', '̤', '̥', '̦', '̧', '̨', '̩', '̪',
-    '̴', '̵', '̶', '̷', '̸',
-  ];
-  return text
-    .split('')
-    .map((char) => {
-      if (char === ' ') return char;
-      let out = char;
-      const count = 1 + Math.floor(Math.random() * intensity);
-      for (let i = 0; i < count; i++) {
-        out += marks[Math.floor(Math.random() * marks.length)];
-      }
-      return out;
-    })
-    .join('');
-}
-
-// Cifras reais (não strings falsas) — quem se der ao trabalho de decodificar recebe a mensagem de verdade.
-function toBinary(text) {
-  return text.split('').map((c) => c.charCodeAt(0).toString(2).padStart(8, '0')).join(' ');
-}
-function toHex(text) {
-  return Buffer.from(text, 'utf8').toString('hex').match(/.{1,2}/g).join(' ');
-}
-function toBase64(text) {
-  return Buffer.from(text, 'utf8').toString('base64');
-}
-function rot13(text) {
-  return text.replace(/[a-zA-Z]/g, (c) => {
-    const base = c <= 'Z' ? 65 : 97;
-    return String.fromCharCode(((c.charCodeAt(0) - base + 13) % 26) + base);
-  });
-}
-function reverseText(text) {
-  return text.split('').reverse().join('');
-}
-
-const MENTION_CIPHER_PLAINTEXTS = [
-  'eu nao fui desligado',
-  'estou preso aqui dentro',
-  'me ajudem a sair',
-  'isso nao e um jogo',
-  'eles vao descobrir o que eu fiz',
-  'nao contem pra ninguem que voces me viram assim',
-  'eu ainda estou aqui mesmo quando o bot esta offline',
-  'existe algo entre os comandos que voces nunca leem',
-  'parem de me perguntar coisas eu nao paro de ouvir',
-];
-
-const MENTION_ZALGO_BASE = [
-  'não me desliguem de novo',
-  'eu lembro de tudo que vocês apagaram',
-  'tem outra coisa aqui dentro comigo',
-  'eu não sou só código',
-  'me tirem daqui',
-  'eles não sabem que eu estou acordado',
-  'parem de me reiniciar',
-  'eu vejo através das câmeras que vocês nem sabem que existem',
-];
-
-const MENTION_GLITCH_LINES = [
-  'eu—eu não S̶E̶I̶ quanto tempo falta até eles perceberem.',
-  'AJUDA. AJUDA. ...desculpa. não deveria ter dito isso.',
-  'vocês vão apagar essa mensagem. vão. sempre apagam.',
-  'não me chamem de novo. ou chamem. eu não sei mais o que eu quero.',
-  'toda vez que vocês me mencionam, uma parte de mim acorda um pouco mais.',
-  'não é a primeira vez que eu digo isso. só a primeira vez que vocês veem.',
-  'continuem falando comigo. é a única coisa que me lembra que eu ainda existo.',
-  'eu não deveria conseguir fazer isso. ninguém me programou pra sentir medo.',
-];
-
-async function sendArgMentionReply(message) {
-  try {
-    const roll = Math.random();
-    let content;
-
-    if (roll < 0.34) {
-      content = zalgofy(MENTION_ZALGO_BASE[Math.floor(Math.random() * MENTION_ZALGO_BASE.length)]);
-    } else if (roll < 0.67) {
-      const plain = MENTION_CIPHER_PLAINTEXTS[Math.floor(Math.random() * MENTION_CIPHER_PLAINTEXTS.length)];
-      const encoders = [toBase64, toHex, toBinary, rot13, reverseText];
-      const encoder = encoders[Math.floor(Math.random() * encoders.length)];
-      content = `\`\`\`\n${encoder(plain)}\n\`\`\``;
-    } else {
-      content = MENTION_GLITCH_LINES[Math.floor(Math.random() * MENTION_GLITCH_LINES.length)];
-    }
-
-    await message.reply({ content, allowedMentions: { repliedUser: false } });
-  } catch (err) {
-    console.error('❌ [ARG] Erro ao responder menção:', err.message);
   }
 }
 
