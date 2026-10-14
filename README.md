@@ -10,6 +10,7 @@
 | Comando | O que faz |
 |---|---|
 | `/menu` | **Jeito mais fácil**: painel com botões para tudo (criar conta, e-mail do app, Dracmas, Biblioteca, Acervo, Mutirão, Assembleia) e um **tutorial** em 9 páginas. `/menu fixar_no_canal:true` (administração) publica um painel fixo no canal; cada clique abre o menu pessoal de quem clicou |
+| `/agora app` | Código de uso único para entrar no app com a mesma conta (sem e-mail nem senha) |
 | `/agora entrar` | Cria a conta da pessoa na Ágora e pede o aceite do Código de Conduta |
 | `/agora perfil [membro]` · `pseudonimo` · `email` · `notificacoes` · `buscar` · `ajuda` | Nível, reputação e contribuições; pseudônimo; e-mail para usar a mesma conta no app; notificações; busca em tudo |
 | `/dracmas` | Prévia dos Dracmas (DRC): créditos acumulados por reputação, épocas e próximo fechamento |
@@ -21,8 +22,21 @@
 
 **Tudo acontece no mesmo banco do app.** Cada pessoa do Discord ganha uma conta na Ágora e o bot age como ela:
 as regras de nível, permissões e limites são as mesmas do app, e o que é feito na prévia (reputação, artigos,
-votos, horas, créditos de Dracma) já está lá quando o app lançar. Para entrar no app com a mesma conta, a pessoa
-cadastra o e-mail com `/agora email`.
+votos, horas, créditos de Dracma) já está lá quando o app lançar.
+
+### Entrar no app com a conta do Discord
+
+A conta criada pelo bot não tem senha nem e-mail de verdade (usa um e-mail técnico `discord-<id>@…`). Para usar a mesma
+conta no app:
+
+1. No Discord: `/agora app` (ou `/menu › Entrar no app`). O bot mostra, só para a pessoa, um código como `ABCD-EFGH`
+   (8 caracteres, vale 15 minutos, uso único; gerar outro invalida o anterior; só o hash fica no banco).
+2. No app: **Entrar › Já usa a Ágora pelo Discord?** e digitar o código. A Edge Function `entrar-com-codigo` consome o
+   código e devolve um token de login de uso único da mesma conta; o app abre a sessão com ele.
+
+Não depende de e-mail nem de SMTP. Opcional: `/agora email` troca o e-mail técnico pelo e-mail da pessoa (feito pelo
+servidor, porque o e-mail técnico não recebe mensagens) para ela também entrar por *Receber link de acesso* — isso
+exige SMTP próprio configurado no Supabase (o envio padrão do Supabase só entrega para a equipe do projeto).
 
 ### Aulas pela call (e encontros/debates ao vivo)
 

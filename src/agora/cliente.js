@@ -247,7 +247,8 @@ export async function perfilIdDoDiscord(discordId) {
   return v?.profile_id ?? null;
 }
 
-/** Só para testes: limpa o cache de sessões. */
-export function limparSessoes() {
-  sessoes.clear();
+/** Limpa o cache de sessões (de uma pessoa ou de todas). */
+export function limparSessoes(discordId) {
+  if (discordId) sessoes.delete(discordId);
+  else sessoes.clear();
 }

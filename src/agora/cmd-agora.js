@@ -2,8 +2,10 @@
 // agora/cmd-agora.js — /agora: entrar, perfil, e-mail, notificações, busca, ajuda
 // ============================================
 
-import { ButtonStyle, SlashCommandBuilder } from 'discord.js';
-import { dados, perfilIdDoDiscord } from './cliente.js';
+import crypto from 'node:crypto';
+import { ButtonBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
+import { config } from '../config.js';
+import { clienteAdmin, dados, limparSessoes, perfilIdDoDiscord } from './cliente.js';
 import {
   COR, LIMIARES, NOMES_NIVEIS, PERMISSOES_NIVEL, ROTULOS_ACAO,
   botao, comoMembro, cortar, data as dataBr, embed, EFEMERA, erro, linha, linkApp, menuAbrir, nomePublico, numero, plural, relativo, responder, telaConduta,
@@ -17,8 +19,9 @@ export const data_ = new SlashCommandBuilder()
     s.setName('perfil').setDescription('Seu nível, reputação e contribuições (ou de outra pessoa).')
       .addUserOption((o) => o.setName('membro').setDescription('Ver o perfil de outra pessoa').setRequired(false)),
   )
+  .addSubcommand((s) => s.setName('app').setDescription('Gera um código para entrar no app com esta mesma conta (sem e-mail nem senha).'))
   .addSubcommand((s) =>
-    s.setName('email').setDescription('Cadastra seu e-mail para entrar no app com a mesma conta quando ele lançar.')
+    s.setName('email').setDescription('Cadastra um e-mail para também entrar no app por link no e-mail.')
       .addStringOption((o) => o.setName('email').setDescription('Seu e-mail').setRequired(true).setMaxLength(200)),
   )
   .addSubcommand((s) =>
@@ -44,6 +47,7 @@ export async function execute(interaction) {
   if (sub === 'ajuda') return responder(interaction, { embeds: [telaAjuda()] });
   if (sub === 'entrar') return entrar(interaction);
   if (sub === 'perfil') return perfil(interaction);
+  if (sub === 'app') return codigoApp(interaction);
   if (sub === 'email') return cadastrarEmail(interaction, interaction.options.getString('email'));
   if (sub === 'pseudonimo') return definirPseudonimo(interaction, interaction.options.getString('nome'));
   if (sub === 'notificacoes') return notificacoes(interaction);
@@ -56,7 +60,7 @@ export function telaAjuda() {
     [
       '**Jeito mais fácil**: `/menu` abre um painel com botões para tudo, e o **Tutorial** explica cada parte.',
       '',
-      '**Conta**: `/agora entrar` · `/agora perfil` · `/agora email` · `/agora pseudonimo` · `/agora notificacoes` · `/agora buscar`',
+      '**Conta**: `/agora entrar` · `/agora app` (código para entrar no app) · `/agora perfil` · `/agora email` · `/agora pseudonimo` · `/agora notificacoes` · `/agora buscar`',
       '**Dracmas**: `/dracmas` mostra os créditos que você já acumulou contribuindo.',
       '**Biblioteca**: `/biblioteca temas · topicos · topico · novo-topico · artigos · artigo · escrever · meus-artigos · revisar · trilhas · trilha · salvos · acervo`',
       '**Mutirão**: `/mutirao projetos · projeto · tarefas · horas · confirmar-horas · eventos · evento · novo-evento · checkin · caixa · doar`',
@@ -114,7 +118,7 @@ export async function handleInteraction(interaction, partes) {
                 '• `/assembleia propostas` — o que está em debate e votação',
                 '• `/dracmas` — seus créditos de Dracma',
                 '',
-                `Quer usar a mesma conta no app depois? Cadastre seu e-mail com \`/agora email\`. App: ${linkApp()}.`,
+                `Para usar a mesma conta no app: \`/agora app\` gera um código de entrada. App: ${linkApp()}.`,
               ].join('\n'),
               COR.secundaria,
             ),
@@ -126,6 +130,7 @@ export async function handleInteraction(interaction, partes) {
     );
   }
   if (partes[0] === 'lidas') return marcarLidas(interaction);
+  if (partes[0] === 'novo-codigo') return codigoApp(interaction);
   if (partes[0] === 'busca') {
     // menu da busca: "tipo|id" → abre o item direto
     const [tipo, id] = interaction.values[0].split('|');
@@ -217,17 +222,81 @@ export async function perfil(interaction) {
   });
 }
 
-export async function cadastrarEmail(interaction, bruto) {
-  const valor = String(bruto ?? '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(valor)) return erro(interaction, 'Esse e-mail não parece válido.');
-  return comoMembro(interaction, async ({ sb }) => {
-    const { error } = await sb.auth.updateUser({ email: valor });
-    if (error) return erro(interaction, `Não foi possível cadastrar o e-mail: ${error.message}`);
+// ------------------------------------------------------------------ entrar no app
+// Código de uso único (15 min) que o app troca por uma sessão desta conta, pela Edge
+// Function entrar-com-codigo. Só o hash fica no banco.
+const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sem 0/O e 1/I, que se confundem
+const VALIDADE_MIN = 15;
+
+export function gerarCodigo() {
+  let c = '';
+  for (let i = 0; i < 8; i++) c += ALFABETO[crypto.randomInt(ALFABETO.length)];
+  return c;
+}
+export const hashCodigo = (codigo) => crypto.createHash('sha256').update(codigo.toUpperCase().replace(/[^A-Z0-9]/g, '')).digest('hex');
+
+export async function codigoApp(interaction) {
+  return comoMembro(interaction, async ({ perfil }) => {
+    const adm = clienteAdmin();
+    const codigo = gerarCodigo();
+    // um código válido por vez: gerar outro invalida o anterior
+    await dados(adm.from('codigos_login').delete().eq('profile_id', perfil.id).is('usado_em', null));
+    await dados(adm.from('codigos_login').insert({
+      codigo_hash: hashCodigo(codigo), profile_id: perfil.id, expira_em: new Date(Date.now() + VALIDADE_MIN * 60_000).toISOString(),
+    }));
+    const formatado = `${codigo.slice(0, 4)}-${codigo.slice(4)}`;
+    const expira = Math.floor((Date.now() + VALIDADE_MIN * 60_000) / 1000);
     return responder(interaction, {
       embeds: [
         embed(
-          'Confira sua caixa de entrada',
-          `Enviamos um link de confirmação para **${valor}**. Depois de confirmar, é com esse e-mail que você entra no app — com toda a sua reputação, artigos e votos da prévia.`,
+          'Seu código para entrar no app',
+          [
+            `# ${formatado}`,
+            `Vale até <t:${expira}:t> (${VALIDADE_MIN} minutos) e funciona **uma vez só**.`,
+            '',
+            '**No celular:**',
+            `1. Instale o app da Ágora (botão abaixo) e abra.`,
+            '2. Toque em **Entrar** › **Já usa a Ágora pelo Discord?**',
+            `3. Digite **${formatado}**. Pronto: é a mesma conta, com sua reputação, artigos, votos e Dracmas.`,
+            '',
+            '🔒 Não mostre este código a ninguém: quem tiver o código entra na sua conta. Precisa de outro? É só pedir de novo (o anterior deixa de valer).',
+          ].join('\n'),
+          COR.dourado,
+        ),
+      ],
+      components: [linha(
+        new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(config.agora.urlApp).setLabel('Baixar o app').setEmoji('📲'),
+        botao('agora:novo-codigo', 'Gerar outro código', ButtonStyle.Secondary, '🔁'),
+      )],
+    });
+  }, { semConduta: true });
+}
+
+/**
+ * E-mail de login (opcional): troca o e-mail técnico da conta pelo da pessoa, para ela também
+ * poder entrar no app por link no e-mail. Feito pelo servidor porque o e-mail técnico não
+ * recebe mensagens (a troca "pelo usuário" exigiria confirmar nos dois endereços).
+ */
+export async function cadastrarEmail(interaction, bruto) {
+  const valor = String(bruto ?? '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(valor)) return erro(interaction, 'Esse e-mail não parece válido.');
+  if (valor.endsWith(`@${config.agora.dominioEmail}`)) return erro(interaction, 'Use o seu e-mail pessoal.');
+  return comoMembro(interaction, async ({ perfil }) => {
+    const adm = clienteAdmin();
+    const { error } = await adm.auth.admin.updateUserById(perfil.id, { email: valor });
+    if (error) {
+      if (/already|registered|exists/i.test(error.message)) {
+        return erro(interaction, 'Esse e-mail já é usado por outra conta da Ágora. Para entrar no app com **esta** conta do Discord, use `/agora app`.');
+      }
+      return erro(interaction, `Não foi possível cadastrar o e-mail: ${error.message}`);
+    }
+    await dados(adm.from('discord_vinculos').update({ email_tecnico: valor }).eq('discord_id', interaction.user.id));
+    limparSessoes(interaction.user.id);
+    return responder(interaction, {
+      embeds: [
+        embed(
+          'E-mail cadastrado',
+          `Agora você também pode entrar no app com **${valor}**: em **Entrar**, toque em *Receber link de acesso* e abra o link que chegar nesse e-mail.\nO jeito mais rápido continua sendo o código: \`/agora app\`.`,
           COR.secundaria,
         ),
       ],

@@ -79,7 +79,7 @@ async function telaInicio({ sb, perfil }) {
       linha(
         botao('menu:aulas', 'Aulas', ButtonStyle.Primary, '🎓'),
         botao('menu:tutorial:0', 'Tutorial', ButtonStyle.Secondary, '❓'),
-        botao('menu:email', 'Usar no app (e-mail)', ButtonStyle.Secondary, '📧'),
+        botao('menu:app', 'Entrar no app', ButtonStyle.Success, '📲'),
         linkApp(),
       ),
     ],
@@ -124,7 +124,8 @@ function telaConta({ perfil }) {
           `Nível ${perfil.nivel} · ${NOMES_NIVEIS[perfil.nivel]} · ${perfil.reputacao_total} pontos`,
           '',
           '• **Perfil**: nível, reputação e contribuições',
-          '• **Usar no app**: cadastre seu e-mail para entrar no app com esta mesma conta',
+          '• **Entrar no app**: gera um código para entrar no app com esta mesma conta (sem e-mail nem senha)',
+          '• **E-mail (opcional)**: para também entrar no app por link no e-mail',
           '• **Pseudônimo**: apareça com outro nome nas publicações',
         ].join('\n'),
         COR.neutra,
@@ -133,7 +134,8 @@ function telaConta({ perfil }) {
     components: [
       linha(
         botao('menu:perfil', 'Perfil', ButtonStyle.Primary, '👤'),
-        botao('menu:email', 'Usar no app (e-mail)', ButtonStyle.Secondary, '📧'),
+        botao('menu:app', 'Entrar no app', ButtonStyle.Success, '📲'),
+        botao('menu:email', 'E-mail (opcional)', ButtonStyle.Secondary, '📧'),
         botao('menu:pseudonimo', 'Pseudônimo', ButtonStyle.Secondary, '🎭'),
         botao('menu:notificacoes', 'Notificações', ButtonStyle.Secondary, '🔔'),
       ),
@@ -247,7 +249,8 @@ export const PAGINAS_TUTORIAL = [
       '**Criar conta**: botão *Criar minha conta* no `/menu` (ou `/agora entrar`). O bot cria sua conta na Ágora ligada ao seu Discord — sem senha.',
       '**Código de Conduta**: na primeira vez você lê e aceita. Respeito acima de tudo; discorde de ideias, nunca de pessoas.',
       '**Participação ativa**: quem tem o cargo de membro do servidor pode publicar, votar e registrar horas. Sem ele, dá para ler.',
-      '**Usar no app depois**: cadastre seu e-mail (*Usar no app* no menu ou `/agora email`). Confirme o link que chega no e-mail e pronto: no app você entra com esse e-mail e encontra tudo o que fez aqui.',
+      '**Entrar no app**: toque em *Entrar no app* no menu (ou `/agora app`). O bot mostra um código (ex.: ABCD-EFGH). No app: **Entrar › Já usa a Ágora pelo Discord?** e digite o código. É a mesma conta, com tudo o que você fez aqui — sem e-mail nem senha. O código vale 15 minutos e uma vez; peça outro sempre que precisar (por exemplo, num celular novo).',
+      '**E-mail (opcional)**: se cadastrar um e-mail (`/agora email`), também dá para entrar no app com *Receber link de acesso*.',
       '**Pseudônimo**: se preferir, apareça com outro nome nas publicações.',
     ],
   },
@@ -511,7 +514,8 @@ export async function handleInteraction(interaction, partes) {
   if (acao === 'dracmas') return dracmas(interaction);
   if (acao === 'notificacoes') return agora.notificacoes(interaction);
   if (acao === 'acervo') return biblioteca.mostrarAcervo(interaction, {});
-  if (acao === 'email') return interaction.showModal(modalSimples('menu:m-email', 'Usar a mesma conta no app', 'email', 'Seu e-mail', { max: 200, placeholder: 'voce@exemplo.com' }));
+  if (acao === 'app') return agora.codigoApp(interaction);
+  if (acao === 'email') return interaction.showModal(modalSimples('menu:m-email', 'E-mail para entrar no app', 'email', 'Seu e-mail', { max: 200, placeholder: 'voce@exemplo.com' }));
   if (acao === 'pseudonimo') return interaction.showModal(modalSimples('menu:m-pseudonimo', 'Pseudônimo', 'nome', 'Pseudônimo (vazio = usar seu nome)', { max: 40, obrig: false }));
   if (acao === 'buscar') return interaction.showModal(modalSimples('menu:m-buscar', 'Buscar na Ágora', 'termo', 'O que procurar', { min: 2, max: 100, placeholder: 'Ex.: hermetismo, mutirão' }));
 

@@ -164,6 +164,22 @@ const itemBusca = (busca.match(/\{[^}]*=(\w+\|[0-9a-f-]{36})\}/) ?? [])[1];
 if (itemBusca) await caso('menu da busca abre o item', 'membro', { comando: 'agora', customId: 'agora:busca', valores: [itemBusca] }, /Tópico|Artigo|Projeto|Proposta|Trilha|Decis|Caixa|Votação|leitura|resposta/i, 'botao', ['busca']);
 await caso('/dracmas', 'membro', { comando: 'dracmas' }, ['Seus Dracmas', 'DRC', 'O que é o Dracma', 'Não é vendido']);
 
+console.log('\n== Entrar no app com código do Discord');
+const { hashCodigo } = await import('../src/agora/cmd-agora.js');
+const codigoDe = (t) => (t.match(/# ([A-Z0-9]{4}-[A-Z0-9]{4})/) ?? [])[1];
+const t1 = await caso('/agora app gera código', 'membro', { comando: 'agora', sub: 'app' }, ['Seu código para entrar no app', 'uma vez só', 'Já usa a Ágora pelo Discord?', 'agora:novo-codigo']);
+const t2 = await caso('gerar outro código', 'membro', { comando: 'agora', customId: 'agora:novo-codigo' }, 'Seu código para entrar no app', 'botao', ['novo-codigo']);
+const [c1, c2] = [codigoDe(t1), codigoDe(t2)];
+const usar = async (c) => (await admin.rpc('usar_codigo_login', { p_hash: hashCodigo(c) })).data;
+if (c1 && c2 && c1 !== c2 && !/[01OI]/.test(c1 + c2)) { ok++; console.log('✓ códigos de 8 caracteres, sem letras que se confundem'); } else { falhas++; console.log('✗ códigos', c1, c2); }
+if ((await usar(c1)) === null) { ok++; console.log('✓ gerar outro código invalida o anterior'); } else { falhas++; console.log('✗ código antigo ainda vale'); }
+if ((await usar(c2.toLowerCase().replace('-', ' '))) === pessoas.membro.perfilId) { ok++; console.log('✓ o código leva à mesma conta do Discord (aceita minúsculas e espaço)'); } else { falhas++; console.log('✗ código não levou à conta'); }
+if ((await usar(c2)) === null) { ok++; console.log('✓ código só vale uma vez'); } else { falhas++; console.log('✗ código reutilizado'); }
+const t3 = await caso('menu › Entrar no app', 'coord', { comando: 'menu', customId: 'menu:app' }, 'Seu código para entrar no app', 'botao', ['app']);
+await um(admin.from('codigos_login').update({ expira_em: new Date(Date.now() - 60_000).toISOString() }).eq('codigo_hash', hashCodigo(codigoDe(t3))));
+if ((await usar(codigoDe(t3))) === null) { ok++; console.log('✓ código vencido não vale'); } else { falhas++; console.log('✗ código vencido valeu'); }
+await caso('e-mail técnico não pode ser cadastrado', 'membro', { comando: 'agora', sub: 'email', opcoes: { email: 'x@discord.agora.app' } }, 'e-mail pessoal');
+
 console.log('\n== Biblioteca');
 await caso('/biblioteca temas', 'membro', { comando: 'biblioteca', sub: 'temas' }, 'Temas da Biblioteca');
 await caso('autocompletar tema', 'membro', { comando: 'biblioteca', foco: 'tema', opcoes: { tema: '' } }, '[autocomplete', 'autocomplete');
