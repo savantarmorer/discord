@@ -18,6 +18,7 @@ import http from 'http';
 import { config } from './config.js';
 import { comandosAgora } from './agora/comandos.js';
 import { problemasDeConfiguracao } from './agora/cliente.js';
+import { iniciarEventosDiscord } from './agora/eventos-discord.js';
 import { deployCommands } from './commands/deploy.js';
 
 // ============================================
@@ -56,7 +57,8 @@ if (legado) {
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`🤖 Bot conectado como: ${readyClient.user.tag} · servidores: ${readyClient.guilds.cache.size}`);
   if (!legado) {
-    readyClient.user.setActivity('Prévia da Ágora · /agora entrar', { type: ActivityType.Playing });
+    readyClient.user.setActivity('Prévia da Ágora · /menu', { type: ActivityType.Playing });
+    if (iniciarEventosDiscord(readyClient)) console.log('📅 Eventos do Mutirão e votações da Assembleia viram eventos do Discord.');
   }
 });
 

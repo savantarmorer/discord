@@ -7,6 +7,7 @@ import {
 } from 'discord.js';
 import { acessoDe, dados } from './cliente.js';
 import { perfisPorIds } from './cmd-biblioteca.js';
+import { agendarSincronizacao } from './eventos-discord.js';
 import {
   COR, botao, comoMembro, cortar, data as dataBr, embed, erro, idDaOpcao, linha, menuAbrir, nomePublico, opcoes, plural, relativo, responder,
 } from './ui.js';
@@ -71,14 +72,16 @@ export async function execute(interaction) {
     const debate = interaction.options.getInteger('dias_debate') ?? 5;
     const votacao = interaction.options.getInteger('dias_votacao') ?? 3;
     const rascunho = interaction.options.getBoolean('rascunho') ? 1 : 0;
-    return interaction.showModal(
-      new ModalBuilder().setCustomId(`assembleia:m-nova:${tipo}:${debate}:${votacao}:${rascunho}`).setTitle('Nova proposta').addComponents(
-        campo('titulo', 'Título', TextInputStyle.Short, { min: 5, max: 200 }),
-        campo('contexto', 'Contexto: por que isso importa?', TextInputStyle.Paragraph, { min: 20, max: 3000 }),
-        campo('proposta', 'O que se propõe (mín. 50 caracteres)', TextInputStyle.Paragraph, { min: 50, max: 3000 }),
-      ),
-    );
+    return interaction.showModal(modalNovaProposta(tipo, debate, votacao, rascunho));
   }
+}
+
+export function modalNovaProposta(tipo, debate = 5, votacao = 3, rascunho = 0) {
+  return new ModalBuilder().setCustomId(`assembleia:m-nova:${tipo}:${debate}:${votacao}:${rascunho}`).setTitle(`Nova proposta · ${ROTULO_TIPO[tipo] ?? 'Geral'}`).addComponents(
+    campo('titulo', 'Título', TextInputStyle.Short, { min: 5, max: 200 }),
+    campo('contexto', 'Contexto: por que isso importa?', TextInputStyle.Paragraph, { min: 20, max: 3000 }),
+    campo('proposta', 'O que se propõe (mín. 50 caracteres)', TextInputStyle.Paragraph, { min: 50, max: 3000 }),
+  );
 }
 
 function campo(id, rotulo, estilo, { min, max } = {}) {
@@ -88,7 +91,7 @@ function campo(id, rotulo, estilo, { min, max } = {}) {
   return new ActionRowBuilder().addComponents(c);
 }
 
-async function propostas(interaction, aba) {
+export async function propostas(interaction, aba = 'votacao') {
   return comoMembro(interaction, async ({ sb, perfil }) => {
     let q = sb.from('propostas').select(CAMPOS).is('excluido_em', null).limit(15);
     if (aba === 'debate') q = q.eq('status', 'debate').order('debate_ate');
@@ -176,7 +179,7 @@ export async function mostrarProposta(interaction, id) {
   });
 }
 
-async function decisoes(interaction) {
+export async function decisoes(interaction) {
   return comoMembro(interaction, async ({ sb }) => {
     const lista = await dados(sb.from('decisoes').select('id, resultado, resumo_md, total_votos, votos_favor, votos_contra, registrada_em, proposta:propostas(titulo, tipo)').order('registrada_em', { ascending: false }).limit(10));
     if (!lista.length) return responder(interaction, { embeds: [embed('Decisões', 'Nenhuma decisão registrada ainda.', COR.neutra)] });
@@ -272,6 +275,7 @@ export async function handleModalSubmit(interaction, partes) {
         }).select('id').single(),
       );
       if (!abrir) return responder(interaction, { embeds: [embed('Rascunho salvo', 'Sua proposta ficou como rascunho. Abra o debate pelo app quando estiver pronta.', COR.secundaria)] });
+      agendarSincronizacao();
       return mostrarProposta(interaction, p.id);
     });
   }

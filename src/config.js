@@ -69,5 +69,8 @@ export const config = {
     dominioEmail: process.env.AGORA_DOMINIO_EMAIL || 'discord.agora.app',
     // Link mostrado nas mensagens para baixar o app
     urlApp: process.env.AGORA_URL_APP || 'https://github.com/savantarmorer/newrepo/releases/latest/download/agora.apk',
+    // Eventos do Mutirão e votações da Assembleia viram eventos agendados no Discord
+    // (precisa da permissão "Criar eventos"/"Gerenciar eventos"). Desligue com "false".
+    eventosDiscord: process.env.AGORA_EVENTOS_DISCORD !== 'false',
   },
 };

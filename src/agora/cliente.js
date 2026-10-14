@@ -66,7 +66,7 @@ export function problemasDeConfiguracao() {
 }
 
 let admin = null;
-function clienteAdmin() {
+export function clienteAdmin() {
   admin ??= createClient(cfg.url, cfg.serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   return admin;
 }

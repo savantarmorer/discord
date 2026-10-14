@@ -7,6 +7,7 @@ import {
 } from 'discord.js';
 import { acessoDe, dados } from './cliente.js';
 import { perfisPorIds } from './cmd-biblioteca.js';
+import { agendarSincronizacao } from './eventos-discord.js';
 import {
   COR, botao, comoMembro, cortar, data as dataBr, dataHora, embed, erro, idDaOpcao, linha, menuAbrir, moeda, nomePublico, numero, opcoes, plural, relativo, responder,
 } from './ui.js';
@@ -33,6 +34,10 @@ export const data = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName('confirmar-horas').setDescription('Horas pendentes nos projetos que você coordena.'))
   .addSubcommand((s) => s.setName('eventos').setDescription('Próximos eventos.'))
   .addSubcommand((s) => s.setName('evento').setDescription('Detalhes do evento e sua presença.').addStringOption((o) => opEvento(o)))
+  .addSubcommand((s) =>
+    s.setName('novo-evento').setDescription('Marca um evento (coordenação do projeto ou nível Guardião). Vira evento do Discord.')
+      .addStringOption((o) => opProjeto(o, false)),
+  )
   .addSubcommand((s) =>
     s.setName('checkin').setDescription('Confirma presença no evento com o código mostrado pela organização.')
       .addStringOption((o) => opEvento(o))
@@ -77,6 +82,7 @@ export async function execute(interaction) {
     case 'confirmar-horas': return horasPendentes(interaction);
     case 'eventos': return eventos(interaction);
     case 'evento': return mostrarEvento(interaction, eventoId);
+    case 'novo-evento': return interaction.showModal(modalEvento(projetoId));
     case 'checkin': return checkin(interaction, eventoId);
     case 'caixa': return caixa(interaction, projetoId);
     case 'doar': return doar(interaction, projetoId);
@@ -89,7 +95,7 @@ async function resumos(sb, ids) {
   return Object.fromEntries(lista.map((r) => [r.projeto_id, r]));
 }
 
-async function projetos(interaction) {
+export async function projetos(interaction) {
   return comoMembro(interaction, async ({ sb }) => {
     const lista = await dados(
       sb.from('projetos').select('id, titulo, causa, status, meta_financeira, nucleo:nucleos(cidade, estado)').is('excluido_em', null)
@@ -174,7 +180,7 @@ async function mostrarTarefa(interaction, id) {
   });
 }
 
-async function minhasTarefas(interaction) {
+export async function minhasTarefas(interaction) {
   return comoMembro(interaction, async ({ sb, perfil }) => {
     const lista = await dados(sb.from('tarefas').select('id, titulo, status, prazo, projeto:projetos(titulo)').eq('responsavel_id', perfil.id).neq('status', 'feito').order('prazo', { nullsFirst: false }));
     if (!lista.length) return responder(interaction, { embeds: [embed('Minhas tarefas', 'Nenhuma tarefa com você. Escolha uma em `/mutirao projeto`.', COR.neutra)] });
@@ -197,7 +203,7 @@ async function registrarHoras(interaction, projetoId, tarefaId = null, horasModa
   });
 }
 
-async function horasPendentes(interaction) {
+export async function horasPendentes(interaction) {
   return comoMembro(interaction, async ({ sb, perfil }) => {
     const [coordeno, comoMembroCoord] = await Promise.all([
       dados(sb.from('projetos').select('id').eq('coordenador_id', perfil.id)),
@@ -235,7 +241,7 @@ async function analisarHoras(interaction, id) {
   });
 }
 
-async function eventos(interaction) {
+export async function eventos(interaction) {
   return comoMembro(interaction, async ({ sb }) => {
     const lista = await dados(
       sb.from('eventos').select('id, titulo, inicio, fim, local_nome, nucleo:nucleos(cidade, estado), projeto:projetos(titulo)').is('excluido_em', null)
@@ -249,7 +255,7 @@ async function eventos(interaction) {
   });
 }
 
-async function mostrarEvento(interaction, id) {
+export async function mostrarEvento(interaction, id) {
   if (!id) return comoMembro(interaction, async () => erro(interaction, 'Escolha um evento da lista.'));
   return comoMembro(interaction, async ({ sb, perfil }) => {
     const ev = await dados(sb.from('eventos').select('*, nucleo:nucleos(cidade, estado), projeto:projetos(titulo)').eq('id', id).maybeSingle());
@@ -407,6 +413,7 @@ function numeroBr(texto) {
 
 export async function handleModalSubmit(interaction, partes) {
   const [tipo, a1, a2] = partes;
+  if (tipo === 'm-evento') return criarEvento(interaction, a1 === '-' ? null : a1);
   if (tipo === 'm-doar') {
     const valor = numeroBr(interaction.fields.getTextInputValue('valor'));
     if (!(valor >= 1)) return comoMembro(interaction, async () => erro(interaction, 'Informe um valor de pelo menos R$ 1,00.'));
@@ -417,4 +424,64 @@ export async function handleModalSubmit(interaction, partes) {
     if (!(horas > 0 && horas <= 24)) return comoMembro(interaction, async () => erro(interaction, 'Informe entre 0,25 e 24 horas.'));
     return registrarHoras(interaction, a1, a2, horas, interaction.fields.getTextInputValue('descricao').trim());
   }
+}
+
+// ------------------------------------------------------------------ novo evento
+export function modalEvento(projetoId) {
+  const campo = (id, rotulo, estilo, { min, max, obrig = true, placeholder } = {}) => {
+    const c = new TextInputBuilder().setCustomId(id).setLabel(rotulo).setStyle(estilo).setRequired(obrig);
+    if (min) c.setMinLength(min);
+    if (max) c.setMaxLength(max);
+    if (placeholder) c.setPlaceholder(placeholder);
+    return new ActionRowBuilder().addComponents(c);
+  };
+  return new ModalBuilder().setCustomId(`mutirao:m-evento:${projetoId ?? '-'}`).setTitle('Novo evento do Mutirão').addComponents(
+    campo('titulo', 'Título', TextInputStyle.Short, { min: 3, max: 120, placeholder: 'Ex.: Mutirão de pintura da escola' }),
+    campo('inicio', 'Começa em (dia/mês/ano hora:min)', TextInputStyle.Short, { min: 10, max: 20, placeholder: '25/10/2026 14:00' }),
+    campo('duracao', 'Duração em horas', TextInputStyle.Short, { max: 5, placeholder: '3' }),
+    campo('local', 'Local (nome e endereço)', TextInputStyle.Short, { min: 3, max: 200, placeholder: 'Escola Estadual X — Rua Y, 123' }),
+    campo('descricao', 'O que vamos fazer (opcional)', TextInputStyle.Paragraph, { max: 1500, obrig: false }),
+  );
+}
+
+/** "25/10/2026 14:00" no horário de Brasília (UTC−3, sem horário de verão desde 2019) → Date */
+export function dataHoraBr(texto) {
+  const m = /^\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(?:às\s+)?(\d{1,2})(?::|h)?(\d{2})?\s*h?\s*$/i.exec(String(texto ?? ''));
+  if (!m) return null;
+  const [, d, mes, a, h, min] = m;
+  let ano = a ? Number(a) : new Date().getFullYear();
+  if (ano < 100) ano += 2000;
+  if (Number(h) > 23 || Number(min ?? 0) > 59) return null;
+  const dia = new Date(Date.UTC(ano, Number(mes) - 1, Number(d)));
+  if (dia.getUTCDate() !== Number(d) || dia.getUTCMonth() !== Number(mes) - 1) return null; // 31/02 e afins
+  return new Date(dia.getTime() + ((Number(h) + 3) * 60 + Number(min ?? 0)) * 60_000);
+}
+
+async function criarEvento(interaction, projetoId) {
+  const texto = (c) => interaction.fields.getTextInputValue(c)?.trim() ?? '';
+  return comoMembro(interaction, async ({ sb, perfil }) => {
+    if (!projetoId && perfil.nivel < 4 && perfil.papel !== 'admin') {
+      return erro(interaction, 'Eventos sem projeto são para o nível 4 (Guardião). Para um evento de projeto, escolha o projeto que você coordena em `/mutirao novo-evento projeto:`.');
+    }
+    const inicio = dataHoraBr(texto('inicio'));
+    if (!inicio) return erro(interaction, 'Não entendi a data. Use o formato **25/10/2026 14:00** (horário de Brasília).');
+    if (inicio.getTime() < Date.now() - 5 * 60_000) return erro(interaction, 'Essa data já passou.');
+    const horas = numeroBr(texto('duracao'));
+    if (!(horas > 0 && horas <= 72)) return erro(interaction, 'A duração precisa estar entre 0,5 e 72 horas.');
+    const [localNome, ...resto] = texto('local').split(/\s+[—–-]\s+/);
+    const ev = await dados(
+      sb.from('eventos').insert({
+        titulo: texto('titulo'),
+        descricao: texto('descricao') || null,
+        projeto_id: projetoId,
+        criado_por: perfil.id,
+        local_nome: localNome || texto('local'),
+        endereco: resto.join(' — ') || null,
+        inicio: inicio.toISOString(),
+        fim: new Date(inicio.getTime() + horas * 3600_000).toISOString(),
+      }).select('id').single(),
+    );
+    agendarSincronizacao();
+    return mostrarEvento(interaction, ev.id);
+  });
 }

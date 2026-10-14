@@ -9,11 +9,13 @@
 
 | Comando | O que faz |
 |---|---|
+| `/menu` | **Jeito mais fácil**: painel com botões para tudo (criar conta, e-mail do app, Dracmas, Biblioteca, Acervo, Mutirão, Assembleia) e um **tutorial** em 9 páginas. `/menu fixar_no_canal:true` (administração) publica um painel fixo no canal; cada clique abre o menu pessoal de quem clicou |
 | `/agora entrar` | Cria a conta da pessoa na Ágora e pede o aceite do Código de Conduta |
 | `/agora perfil [membro]` · `pseudonimo` · `email` · `notificacoes` · `buscar` · `ajuda` | Nível, reputação e contribuições; pseudônimo; e-mail para usar a mesma conta no app; notificações; busca em tudo |
 | `/dracmas` | Prévia dos Dracmas (DRC): créditos acumulados por reputação, épocas e próximo fechamento |
 | `/biblioteca` | Temas, tópicos (ler, criar, responder, marcar resposta útil), artigos (ler, escrever, enviar para revisão, marcar como lido), fila de revisão por pares, trilhas e salvos |
-| `/mutirao` | Projetos, tarefas (assumir/concluir), horas de voluntariado e confirmação pela coordenação, eventos (presença e check-in por código), caixa transparente e doação via Pix |
+| `/biblioteca acervo [busca] [colecao] [assunto]` | Índice dos documentos da biblioteca do site (Google Drive): navegação por categoria, coleção e assunto, busca pelo título, links que abrem no Drive |
+| `/mutirao` | Projetos, tarefas (assumir/concluir), horas de voluntariado e confirmação pela coordenação, eventos (presença e check-in por código), **marcar evento** (`novo-evento`), caixa transparente e doação via Pix |
 | `/assembleia` | Propostas em debate/votação, voto (a favor, contra, abstenção, bloqueio justificado), comentários, nova proposta e arquivo de decisões |
 
 **Tudo acontece no mesmo banco do app.** Cada pessoa do Discord ganha uma conta na Ágora e o bot age como ela:
@@ -21,9 +23,20 @@ as regras de nível, permissões e limites são as mesmas do app, e o que é fei
 votos, horas, créditos de Dracma) já está lá quando o app lançar. Para entrar no app com a mesma conta, a pessoa
 cadastra o e-mail com `/agora email`.
 
+### Eventos automáticos no Discord
+
+Eventos do Mutirão (marcados pelo bot **ou pelo app**) e propostas da Assembleia em debate/votação viram
+**eventos agendados** do servidor (aba *Eventos*), com local, horário e um lembrete de como confirmar presença ou votar.
+O bot confere a cada 10 minutos e logo depois de alguém criar algo pelo bot: cria o que falta, atualiza o que mudou e
+apaga o que foi cancelado, decidido ou já terminou. Nada é postado em canais de texto.
+
+Para funcionar, dê ao cargo do bot a permissão **Criar eventos** (ou **Gerenciar eventos**) em
+*Configurações do servidor › Cargos*. Sem ela o bot só avisa no log. Desligue com `AGORA_EVENTOS_DISCORD=false`.
+
 ## Configurar
 
-1. Aplique as migrações da Ágora no Supabase do app (inclui a tabela `discord_vinculos`).
+1. Aplique as migrações da Ágora no Supabase do app (inclui as tabelas `discord_vinculos`, `discord_eventos` e
+   `acervo_documentos`). Para preencher o acervo, rode o workflow **Ágora — acervo** no repositório do app.
 2. No serviço do bot (Render/Railway), defina:
 
 | Variável | Obrigatória | Onde achar |
@@ -31,21 +44,25 @@ cadastra o e-mail com `/agora email`.
 | `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID` | sim | Como antes |
 | `AGORA_SUPABASE_URL` | sim | Supabase do app › Project Settings › API › Project URL |
 | `AGORA_SUPABASE_ANON_KEY` | sim | Mesma página › chave `anon` |
-| `AGORA_SUPABASE_SERVICE_KEY` | sim | Mesma página › chave `service_role` (fica só no servidor do bot) |
+| `AGORA_SUPABASE_SERVICE_KEY` | sim | Mesma página › chave `service_role` ou `secret` (`sb_secret_…`) — **não** a `anon`/`publishable`. Fica só no servidor do bot. Com a chave errada o bot avisa no log e o Discord mostra “chave errada do Supabase” (o erro cru é `permission denied for table discord_vinculos`) |
 | `AGORA_JWT_SECRET` | não | Project Settings › API › JWT Secret (legado). Com ele as sessões são assinadas localmente; sem ele o bot usa links mágicos gerados pelo servidor |
 | `AGORA_CARGO_MEMBRO_ID` | não | ID do cargo de membros pagantes. Quem tem o cargo fica com assinatura ativa; sem a variável, todo o servidor participa |
 | `AGORA_DOMINIO_EMAIL` | não | Domínio dos e-mails técnicos das contas criadas pelo bot (padrão `discord.agora.app`; nenhum e-mail é enviado a ele) |
 | `AGORA_URL_APP` | não | Link de download do app mostrado nas mensagens |
+| `AGORA_EVENTOS_DISCORD` | não | `false` desliga os eventos automáticos no Discord (padrão: ligado) |
 | `RECURSOS_LEGADOS` | não | `true` religa os recursos antigos (exige `SUPABASE_URL`/`SUPABASE_KEY` antigos) |
 
-3. Reinicie o bot. Os comandos antigos somem do Discord e os cinco da Ágora aparecem.
+3. Reinicie o bot. Os comandos antigos somem do Discord e os seis da Ágora aparecem (`/menu`, `/agora`, `/dracmas`,
+   `/biblioteca`, `/mutirao`, `/assembleia`).
+4. (Recomendado) Num canal de boas-vindas, rode `/menu fixar_no_canal:true` e fixe a mensagem.
 
 O bot agora só precisa da intent `Guilds` (as intents privilegiadas de membros e conteúdo de mensagem podem ser
 desligadas no Developer Portal enquanto `RECURSOS_LEGADOS` estiver desligado).
 
 ## Testar
 
-`npm run testar:agora` simula 57 interações (comandos, botões, menus e formulários) contra um banco da Ágora com o
+`npm run testar:agora` simula 107 interações (comandos, botões, menus, formulários, tutorial, acervo e a
+sincronização de eventos com um Discord falso) contra um banco da Ágora com o
 seed de demonstração — por exemplo o Supabase local do app (`supabase start`). Veja o topo de
 `scripts/testar-agora.mjs`. Ele escreve no banco: use só em banco de teste recém-criado.
 

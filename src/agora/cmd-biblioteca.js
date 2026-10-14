@@ -2,8 +2,9 @@
 // agora/cmd-biblioteca.js — /biblioteca: temas, tópicos, artigos, revisão e trilhas
 // ============================================
 
+import crypto from 'node:crypto';
 import {
-  ButtonStyle, ModalBuilder, SlashCommandBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder,
+  ButtonStyle, ModalBuilder, SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder,
 } from 'discord.js';
 import { acessoDe, dados } from './cliente.js';
 import {
@@ -39,7 +40,13 @@ export const data = new SlashCommandBuilder()
     s.setName('trilha').setDescription('Abre uma trilha e mostra seu progresso.')
       .addStringOption((o) => o.setName('trilha').setDescription('Comece a digitar o título').setRequired(true).setAutocomplete(true)),
   )
-  .addSubcommand((s) => s.setName('salvos').setDescription('Tópicos, artigos e trilhas que você salvou.'));
+  .addSubcommand((s) => s.setName('salvos').setDescription('Tópicos, artigos e trilhas que você salvou.'))
+  .addSubcommand((s) =>
+    s.setName('acervo').setDescription('Documentos da biblioteca do site (PDFs, apostilas, livros), por coleção e assunto.')
+      .addStringOption((o) => o.setName('busca').setDescription('Palavras do título (ex.: tarô, Crowley)').setRequired(false).setMaxLength(80))
+      .addStringOption((o) => o.setName('colecao').setDescription('Coleção (pasta)').setRequired(false).setAutocomplete(true))
+      .addStringOption((o) => o.setName('assunto').setDescription('Assunto').setRequired(false).setAutocomplete(true)),
+  );
 
 // ------------------------------------------------------------------ autocompletar
 export async function autocomplete(interaction) {
@@ -47,6 +54,15 @@ export async function autocomplete(interaction) {
   const termo = String(foco.value ?? '').trim();
   const { sb } = await acessoDe(interaction);
   let lista = [];
+  if (foco.name === 'colecao' || foco.name === 'assunto') {
+    const grupo = foco.name;
+    const t = normalizar(termo);
+    const resumo = (await resumoAcervo(sb)).filter((r) => r.grupo === grupo && r.nome !== '(raiz)' && normalizar(r.nome).includes(t));
+    return interaction.respond(resumo.slice(0, 25).map((r) => {
+      const valor = grupo === 'colecao' ? `${r.categoria}|${r.nome}` : r.nome;
+      return { name: cortar(`${r.nome}${r.categoria ? ` · ${r.categoria}` : ''} (${r.total})`, 100), value: cortar(valor, 100) };
+    }));
+  }
   if (foco.name === 'tema') {
     let q = sb.from('temas').select('id, nome').order('ordem').limit(25);
     if (termo) q = q.ilike('nome', `%${termo}%`);
@@ -84,10 +100,19 @@ export async function execute(interaction) {
     case 'trilhas': return trilhas(interaction);
     case 'trilha': return mostrarTrilha(interaction, idDaOpcao(interaction.options.getString('trilha')));
     case 'salvos': return salvos(interaction);
+    case 'acervo': {
+      const [categoria, colecao] = (interaction.options.getString('colecao') ?? '').split('|');
+      return mostrarAcervo(interaction, {
+        termo: interaction.options.getString('busca') ?? null,
+        categoria: colecao ? categoria : null,
+        colecao: colecao || null,
+        assunto: interaction.options.getString('assunto') ?? null,
+      });
+    }
   }
 }
 
-async function temas(interaction) {
+export async function temas(interaction) {
   return comoMembro(interaction, async ({ sb }) => {
     const lista = await dados(sb.from('temas').select('id, nome, descricao').order('ordem'));
     return responder(interaction, {
@@ -98,7 +123,7 @@ async function temas(interaction) {
 
 const CAMPOS_TOPICO = 'id, tema_id, autor_id, titulo, corpo_md, fixado, trancado, status, ultima_atividade_em, created_at, tema:temas(nome), respostas(count)';
 
-async function topicos(interaction, temaId) {
+export async function topicos(interaction, temaId = null) {
   return comoMembro(interaction, async ({ sb }) => {
     let q = sb.from('topicos').select(CAMPOS_TOPICO).is('excluido_em', null)
       .order('fixado', { ascending: false }).order('ultima_atividade_em', { ascending: false }).limit(10);
@@ -161,7 +186,7 @@ export async function mostrarTopico(interaction, id) {
 
 const CAMPOS_ARTIGO = 'id, tema_id, criado_por, titulo, resumo, corpo_md, status, rodada_revisao, publicado_em, updated_at, tema:temas(nome)';
 
-async function artigos(interaction, temaId) {
+export async function artigos(interaction, temaId = null) {
   return comoMembro(interaction, async ({ sb }) => {
     let q = sb.from('artigos').select(CAMPOS_ARTIGO).eq('status', 'publicado').is('excluido_em', null).order('publicado_em', { ascending: false }).limit(10);
     if (temaId) q = q.eq('tema_id', temaId);
@@ -200,7 +225,7 @@ export async function mostrarArtigo(interaction, id) {
   });
 }
 
-async function meusArtigos(interaction) {
+export async function meusArtigos(interaction) {
   return comoMembro(interaction, async ({ sb, perfil }) => {
     const linhas = await dados(
       sb.from('artigo_autores').select(`papel, artigo:artigos(${CAMPOS_ARTIGO})`).eq('profile_id', perfil.id).in('papel', ['autor', 'coautor']),
@@ -214,7 +239,7 @@ async function meusArtigos(interaction) {
   });
 }
 
-async function filaRevisao(interaction) {
+export async function filaRevisao(interaction) {
   return comoMembro(interaction, async ({ sb, perfil }) => {
     if (perfil.nivel < 3) return erro(interaction, `A revisão de artigos é para o nível 3 (Curador). Você está no nível ${perfil.nivel}.`);
     const artigosEmRevisao = await dados(sb.from('artigos').select(CAMPOS_ARTIGO).eq('status', 'em_revisao').order('updated_at'));
@@ -257,7 +282,7 @@ async function mostrarParaRevisao(interaction, id) {
   });
 }
 
-async function trilhas(interaction) {
+export async function trilhas(interaction) {
   return comoMembro(interaction, async ({ sb }) => {
     const lista = await dados(
       sb.from('trilhas').select('id, titulo, descricao, nivel_dificuldade, destaque, tema:temas(nome), trilha_itens(count)').eq('publicada', true).is('excluido_em', null)
@@ -299,7 +324,7 @@ export async function mostrarTrilha(interaction, id) {
   });
 }
 
-async function salvos(interaction) {
+export async function salvos(interaction) {
   return comoMembro(interaction, async ({ sb, perfil }) => {
     const lista = await dados(sb.from('salvos').select('tipo, item_id, created_at').eq('profile_id', perfil.id).order('created_at', { ascending: false }).limit(25));
     if (!lista.length) return responder(interaction, { embeds: [embed('Salvos', 'Nada salvo ainda. Use o botão 🔖 Salvar em tópicos, artigos e trilhas.', COR.neutra)] });
@@ -328,14 +353,14 @@ function campo(id, rotulo, estilo, { min, max, obrig = true, valor, placeholder 
   return new ActionRowBuilder().addComponents(c);
 }
 
-function modalTopico(temaId) {
+export function modalTopico(temaId) {
   return new ModalBuilder().setCustomId(`biblioteca:m-topico:${temaId ?? ''}`).setTitle('Novo tópico').addComponents(
     campo('titulo', 'Título', TextInputStyle.Short, { min: 5, max: 200 }),
     campo('corpo', 'Texto (Markdown)', TextInputStyle.Paragraph, { min: 10, max: 4000, placeholder: 'Contexto, pergunta, fontes…' }),
   );
 }
 
-function modalArtigo(temaId) {
+export function modalArtigo(temaId) {
   return new ModalBuilder().setCustomId(`biblioteca:m-artigo:${temaId ?? ''}`).setTitle('Novo artigo').addComponents(
     campo('titulo', 'Título', TextInputStyle.Short, { min: 5, max: 200 }),
     campo('resumo', 'Resumo (aparece na lista)', TextInputStyle.Paragraph, { max: 400, obrig: false }),
@@ -346,6 +371,16 @@ function modalArtigo(temaId) {
 export async function handleModalSubmit(interaction, partes) {
   const [tipo, id, extra] = partes;
   const texto = (c) => interaction.fields.getTextInputValue(c)?.trim() ?? '';
+
+  if (tipo === 'm-acervo') {
+    const atual = estados.get(id) ?? {};
+    const filtros = { termo: texto('termo') || null, categoria: atual.categoria ?? null, colecao: atual.colecao ?? null, assunto: atual.assunto ?? null };
+    if (interaction.isFromMessage()) {
+      await interaction.deferUpdate();
+      return mostrarAcervo(interaction, filtros, 0, { adiar: false });
+    }
+    return mostrarAcervo(interaction, filtros);
+  }
 
   if (tipo === 'm-topico') {
     return comoMembro(interaction, async ({ sb, perfil }) => {
@@ -386,6 +421,8 @@ export async function handleModalSubmit(interaction, partes) {
 export async function handleInteraction(interaction, partes) {
   const [acao, a1, a2, a3] = partes;
   const valor = interaction.values?.[0];
+
+  if (acao === 'acervo') return navegarAcervo(interaction, a1, a2, valor);
 
   if (acao === 'abrir-topico') return mostrarTopico(interaction, valor);
   if (acao === 'abrir-artigo' || acao === 'ler' || acao === 'ler-trilha') return mostrarArtigo(interaction, valor ?? a1);
@@ -469,3 +506,165 @@ async function estaSalvo(sb, perfilId, tipo, id) {
 }
 
 export { perfisPorIds };
+
+// ------------------------------------------------------------------ acervo (documentos do site)
+// Índice dos PDFs/apostilas da biblioteca do site (Google Drive), sincronizado no banco
+// da Ágora. A navegação é por menus: categoria → coleção ou assunto → páginas de 10.
+
+const ICONE_TIPO = {
+  pdf: '📄', documento: '📝', apresentacao: '📊', planilha: '📈', livro: '📚', imagem: '🖼️', audio: '🎧', video: '🎬', outro: '📁',
+};
+const ROTULO_TIPO = {
+  pdf: 'PDF', documento: 'Documento', apresentacao: 'Apresentação', planilha: 'Planilha', livro: 'Livro digital',
+  imagem: 'Imagem', audio: 'Áudio', video: 'Vídeo', outro: 'Arquivo',
+};
+const POR_PAGINA = 10;
+
+export const normalizar = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const linkDrive = (id) => `https://drive.google.com/file/d/${id}/view`;
+
+function tamanho(bytes) {
+  if (!bytes) return null;
+  const u = ['B', 'KB', 'MB', 'GB'];
+  let v = Number(bytes);
+  let i = 0;
+  while (v >= 1024 && i < u.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(i ? 1 : 0).replace('.', ',')} ${u[i]}`;
+}
+
+// Filtros ficam na memória com uma chave curta (o customId do Discord tem 100 caracteres)
+const estados = new Map();
+function guardar(filtros) {
+  const chave = crypto.randomBytes(4).toString('hex');
+  estados.set(chave, { ...filtros, em: Date.now() });
+  if (estados.size > 2000) {
+    for (const [k, v] of estados) if (Date.now() - v.em > 3600_000 || estados.size > 1500) estados.delete(k);
+  }
+  return chave;
+}
+
+// O resumo (contagem por coleção/assunto) é igual para todos os membros: cache de 10 min
+let cacheResumo = { em: 0, lista: [] };
+async function resumoAcervo(sb) {
+  if (Date.now() - cacheResumo.em < 600_000 && cacheResumo.lista.length) return cacheResumo.lista;
+  const lista = (await dados(sb.rpc('acervo_resumo'))).map((r) => ({ ...r, total: Number(r.total) }));
+  cacheResumo = { em: Date.now(), lista };
+  return lista;
+}
+
+function categoriasDe(resumo) {
+  const mapa = new Map();
+  for (const r of resumo) if (r.grupo === 'colecao' && r.categoria) mapa.set(r.categoria, (mapa.get(r.categoria) ?? 0) + r.total);
+  return [...mapa.entries()].sort((a, b) => b[1] - a[1]);
+}
+const colecoesDe = (resumo, categoria) => resumo.filter((r) => r.grupo === 'colecao' && r.categoria === categoria && r.nome !== '(raiz)').slice(0, 24);
+const assuntosDe = (resumo) => resumo.filter((r) => r.grupo === 'assunto').slice(0, 24);
+
+function seletor(customId, placeholder, opcoesMenu) {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder().setCustomId(customId).setPlaceholder(cortar(placeholder, 150)).addOptions(opcoesMenu.slice(0, 25)),
+  );
+}
+
+/** Mostra (ou atualiza) a tela do acervo com os filtros dados. */
+export async function mostrarAcervo(interaction, filtros = {}, pagina = 0, { adiar = true } = {}) {
+  return comoMembro(interaction, async ({ sb }) => {
+    const resumo = await resumoAcervo(sb);
+    if (!resumo.length) {
+      return responder(interaction, {
+        embeds: [embed('Acervo', 'O acervo ainda não foi carregado no banco. A administração precisa rodar a sincronização (GitHub Actions › “Ágora — acervo”).', COR.neutra)],
+      });
+    }
+    const lista = await dados(sb.rpc('buscar_acervo', {
+      p_termo: filtros.termo || null,
+      p_categoria: filtros.categoria || null,
+      p_colecao: filtros.colecao || null,
+      p_assunto: filtros.assunto || null,
+      p_limite: POR_PAGINA + 1,
+      p_deslocamento: pagina * POR_PAGINA,
+    }));
+    const temMais = lista.length > POR_PAGINA;
+    const itens = lista.slice(0, POR_PAGINA);
+    const chave = guardar(filtros);
+    const total = resumo.filter((r) => r.grupo === 'colecao').reduce((s, r) => s + r.total, 0);
+
+    const filtrosTexto = [
+      filtros.termo ? `🔎 “${filtros.termo}”` : null,
+      filtros.categoria ? `📂 ${filtros.categoria}` : null,
+      filtros.colecao ? `🗂️ ${filtros.colecao}` : null,
+      filtros.assunto ? `🏷️ ${filtros.assunto}` : null,
+    ].filter(Boolean).join(' · ');
+    const corpo = itens.length
+      ? itens.map((d) => {
+        const detalhes = [ROTULO_TIPO[d.tipo], d.colecao ?? d.categoria, tamanho(d.tamanho)].filter(Boolean).join(' · ');
+        return `${ICONE_TIPO[d.tipo] ?? '📁'} [${cortar(d.titulo, 110).replace(/[[\]]/g, '')}](${linkDrive(d.id)})\n${detalhes}`;
+      }).join('\n')
+      : 'Nada encontrado com esses filtros. Tente outras palavras ou limpe os filtros.';
+    const e = embed(
+      'Acervo da biblioteca',
+      `${filtrosTexto || `${total.toLocaleString('pt-BR')} documentos do site, por coleção e assunto. Escolha nos menus abaixo ou busque pelo título.`}\n\n${corpo}`,
+      COR.secundaria,
+    );
+    if (itens.length) e.addFields({ name: '​', value: `Página ${pagina + 1} · os arquivos abrem no Google Drive.` });
+
+    const cats = categoriasDe(resumo);
+    const componentes = [
+      seletor(`biblioteca:acervo:${chave}:cat`, filtros.categoria ? `Categoria: ${filtros.categoria}` : 'Escolher categoria…', [
+        { label: 'Todas as categorias', value: '*' },
+        ...cats.map(([nome, n]) => ({ label: cortar(nome, 100), value: cortar(nome, 100), description: `${n.toLocaleString('pt-BR')} documentos`, default: nome === filtros.categoria })),
+      ]),
+    ];
+    if (filtros.categoria) {
+      const cols = colecoesDe(resumo, filtros.categoria);
+      if (cols.length) {
+        componentes.push(seletor(`biblioteca:acervo:${chave}:col`, filtros.colecao ? `Coleção: ${filtros.colecao}` : 'Escolher coleção…', [
+          { label: 'Todas as coleções', value: '*' },
+          ...cols.map((c, i) => ({ label: cortar(c.nome, 100), value: String(i), description: `${c.total.toLocaleString('pt-BR')} documentos`, default: c.nome === filtros.colecao })),
+        ]));
+      }
+    }
+    const assuntos = assuntosDe(resumo);
+    if (assuntos.length) {
+      componentes.push(seletor(`biblioteca:acervo:${chave}:ass`, filtros.assunto ? `Assunto: ${filtros.assunto}` : 'Escolher assunto…', [
+        { label: 'Todos os assuntos', value: '*' },
+        ...assuntos.map((a, i) => ({ label: cortar(a.nome, 100), value: String(i), description: `${a.total.toLocaleString('pt-BR')} documentos`, default: a.nome === filtros.assunto })),
+      ]));
+    }
+    const navegar = [
+      pagina > 0 ? botao(`biblioteca:acervo:${chave}:pag-${pagina - 1}`, 'Anterior', ButtonStyle.Secondary, '◀️') : null,
+      temMais ? botao(`biblioteca:acervo:${chave}:pag-${pagina + 1}`, 'Próxima', ButtonStyle.Secondary, '▶️') : null,
+      botao(`biblioteca:acervo:${chave}:buscar`, filtros.termo ? 'Nova busca' : 'Buscar pelo título', ButtonStyle.Primary, '🔎'),
+      filtrosTexto ? botao(`biblioteca:acervo:${chave}:limpar`, 'Limpar filtros', ButtonStyle.Secondary, '✖️') : null,
+    ].filter(Boolean);
+    componentes.push(linha(...navegar));
+    return responder(interaction, { embeds: [e], components: componentes });
+  }, { adiar });
+}
+
+/** Menus e botões da tela do acervo: biblioteca:acervo:<chave>:<ação> */
+async function navegarAcervo(interaction, chave, acao, valor) {
+  const atual = estados.get(chave) ?? {};
+  const filtros = { termo: atual.termo ?? null, categoria: atual.categoria ?? null, colecao: atual.colecao ?? null, assunto: atual.assunto ?? null };
+  if (acao === 'buscar') {
+    return interaction.showModal(
+      new ModalBuilder().setCustomId(`biblioteca:m-acervo:${chave}`).setTitle('Buscar no acervo').addComponents(
+        campo('termo', 'Palavras do título (ex.: tarô, Crowley)', TextInputStyle.Short, { min: 2, max: 80, valor: filtros.termo ?? undefined }),
+      ),
+    );
+  }
+  await interaction.deferUpdate();
+  let pagina = 0;
+  if (acao === 'limpar') return mostrarAcervo(interaction, {}, 0, { adiar: false });
+  if (acao?.startsWith('pag-')) pagina = Math.max(0, Number(acao.slice(4)) || 0);
+  const resumo = cacheResumo.lista;
+  if (acao === 'cat') {
+    filtros.categoria = valor === '*' ? null : valor;
+    filtros.colecao = null;
+  }
+  if (acao === 'col') filtros.colecao = valor === '*' ? null : colecoesDe(resumo, filtros.categoria)[Number(valor)]?.nome ?? null;
+  if (acao === 'ass') filtros.assunto = valor === '*' ? null : assuntosDe(resumo)[Number(valor)]?.nome ?? null;
+  return mostrarAcervo(interaction, filtros, pagina, { adiar: false });
+}

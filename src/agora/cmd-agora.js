@@ -44,20 +44,22 @@ export async function execute(interaction) {
   if (sub === 'ajuda') return responder(interaction, { embeds: [telaAjuda()] });
   if (sub === 'entrar') return entrar(interaction);
   if (sub === 'perfil') return perfil(interaction);
-  if (sub === 'email') return email(interaction);
-  if (sub === 'pseudonimo') return pseudonimo(interaction);
+  if (sub === 'email') return cadastrarEmail(interaction, interaction.options.getString('email'));
+  if (sub === 'pseudonimo') return definirPseudonimo(interaction, interaction.options.getString('nome'));
   if (sub === 'notificacoes') return notificacoes(interaction);
-  if (sub === 'buscar') return buscar(interaction);
+  if (sub === 'buscar') return buscar(interaction, interaction.options.getString('termo'));
 }
 
-function telaAjuda() {
+export function telaAjuda() {
   return embed(
     'O que dá para fazer na prévia',
     [
+      '**Jeito mais fácil**: `/menu` abre um painel com botões para tudo, e o **Tutorial** explica cada parte.',
+      '',
       '**Conta**: `/agora entrar` · `/agora perfil` · `/agora email` · `/agora pseudonimo` · `/agora notificacoes` · `/agora buscar`',
       '**Dracmas**: `/dracmas` mostra os créditos que você já acumulou contribuindo.',
-      '**Biblioteca**: `/biblioteca temas · topicos · topico · novo-topico · artigos · artigo · escrever · meus-artigos · revisar · trilhas · trilha · salvos`',
-      '**Mutirão**: `/mutirao projetos · projeto · tarefas · horas · confirmar-horas · eventos · evento · checkin · caixa · doar`',
+      '**Biblioteca**: `/biblioteca temas · topicos · topico · novo-topico · artigos · artigo · escrever · meus-artigos · revisar · trilhas · trilha · salvos · acervo`',
+      '**Mutirão**: `/mutirao projetos · projeto · tarefas · horas · confirmar-horas · eventos · evento · novo-evento · checkin · caixa · doar`',
       '**Assembleia**: `/assembleia propostas · proposta · nova · decisoes`',
       '',
       'Tudo acontece no **mesmo banco do app**: o que você publica, vota ou registra aqui continua lá quando o app lançar.',
@@ -67,7 +69,7 @@ function telaAjuda() {
   );
 }
 
-async function entrar(interaction) {
+export async function entrar(interaction) {
   return comoMembro(
     interaction,
     async ({ perfil }) => {
@@ -76,10 +78,11 @@ async function entrar(interaction) {
         embeds: [
           embed(
             `Você já está na Ágora, ${perfil.nome_exibicao}`,
-            `Nível **${perfil.nivel} · ${NOMES_NIVEIS[perfil.nivel]}** com **${perfil.reputacao_total}** pontos de reputação.\n\nVeja tudo o que dá para fazer com \`/agora ajuda\`.`,
+            `Nível **${perfil.nivel} · ${NOMES_NIVEIS[perfil.nivel]}** com **${perfil.reputacao_total}** pontos de reputação.\n\nAbra o painel com \`/menu\` ou veja os comandos em \`/agora ajuda\`.`,
             COR.secundaria,
           ),
         ],
+        components: [linha(botao('menu:inicio', 'Abrir o menu', ButtonStyle.Primary, '🧭'), botao('menu:tutorial:0', 'Tutorial', ButtonStyle.Secondary, '🎓'))],
       });
     },
     { semConduta: true },
@@ -105,6 +108,7 @@ export async function handleInteraction(interaction, partes) {
               'Tudo certo! Sua conta na Ágora está pronta',
               [
                 'Por onde começar:',
+                '• `/menu` — painel com botões para tudo (e um tutorial)',
                 '• `/biblioteca topicos` — conversas abertas por tema',
                 '• `/mutirao projetos` — ações solidárias com caixa transparente',
                 '• `/assembleia propostas` — o que está em debate e votação',
@@ -115,6 +119,7 @@ export async function handleInteraction(interaction, partes) {
               COR.secundaria,
             ),
           ],
+          components: [linha(botao('menu:inicio', 'Abrir o menu', ButtonStyle.Primary, '🧭'), botao('menu:tutorial:0', 'Tutorial', ButtonStyle.Secondary, '🎓'))],
         });
       },
       { semConduta: true, adiar: false },
@@ -141,8 +146,8 @@ async function abridor(tipo) {
   return null;
 }
 
-async function perfil(interaction) {
-  const alvo = interaction.options.getUser('membro');
+export async function perfil(interaction) {
+  const alvo = interaction.options?.getUser?.('membro') ?? null;
   return comoMembro(interaction, async ({ sb, perfil: eu }) => {
     let perfilId = eu.id;
     if (alvo && alvo.id !== interaction.user.id) {
@@ -212,8 +217,8 @@ async function perfil(interaction) {
   });
 }
 
-async function email(interaction) {
-  const valor = interaction.options.getString('email').trim().toLowerCase();
+export async function cadastrarEmail(interaction, bruto) {
+  const valor = String(bruto ?? '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(valor)) return erro(interaction, 'Esse e-mail não parece válido.');
   return comoMembro(interaction, async ({ sb }) => {
     const { error } = await sb.auth.updateUser({ email: valor });
@@ -230,8 +235,8 @@ async function email(interaction) {
   });
 }
 
-async function pseudonimo(interaction) {
-  const nome = interaction.options.getString('nome')?.trim() || null;
+export async function definirPseudonimo(interaction, bruto) {
+  const nome = String(bruto ?? '').trim() || null;
   return comoMembro(interaction, async ({ sb, perfil }) => {
     await dados(
       sb.from('profiles').update({ pseudonimo: nome ?? perfil.pseudonimo, pseudonimo_ativo: Boolean(nome) }).eq('id', perfil.id).select('id').single(),
@@ -242,7 +247,7 @@ async function pseudonimo(interaction) {
   });
 }
 
-async function notificacoes(interaction) {
+export async function notificacoes(interaction) {
   return comoMembro(interaction, async ({ sb, perfil }) => {
     const lista = await dados(
       sb.from('notificacoes').select('id, titulo, corpo, lida, created_at').eq('profile_id', perfil.id).order('created_at', { ascending: false }).limit(15),
@@ -272,8 +277,9 @@ async function marcarLidas(interaction) {
   );
 }
 
-async function buscar(interaction) {
-  const termo = interaction.options.getString('termo');
+export async function buscar(interaction, bruto) {
+  const termo = String(bruto ?? '').trim();
+  if (termo.length < 2) return comoMembro(interaction, async () => erro(interaction, 'Digite pelo menos 2 letras.'));
   return comoMembro(interaction, async ({ sb }) => {
     const lista = await dados(sb.rpc('buscar', { p_termo: termo, p_limite: 8 }));
     if (!lista.length) return responder(interaction, { embeds: [embed(`Busca: “${termo}”`, 'Nada encontrado. Tente outras palavras.', COR.neutra)] });
