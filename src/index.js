@@ -17,6 +17,7 @@ import {
 import http from 'http';
 import { config } from './config.js';
 import { comandosAgora } from './agora/comandos.js';
+import { problemasDeConfiguracao } from './agora/cliente.js';
 import { deployCommands } from './commands/deploy.js';
 
 // ============================================
@@ -150,6 +151,7 @@ process.on('unhandledRejection', (reason) => {
 // ============================================
 console.log('🚀 Iniciando bot...');
 if (legado) await legado.iniciar();
+for (const p of problemasDeConfiguracao()) console.error(`⚠️  Ágora: ${p}`);
 
 await deployCommands([...client.commands.values()].map((c) => c.data.toJSON()));
 

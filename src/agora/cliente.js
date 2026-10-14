@@ -17,6 +17,54 @@ export class ErroAgora extends Error {}
 
 export const agoraConfigurada = () => Boolean(cfg.url && cfg.anonKey && cfg.serviceKey);
 
+/** Papel ('anon', 'service_role'...) de uma chave do Supabase, quando dá para saber sem rede. */
+function papelDaChave(chave) {
+  if (!chave) return null;
+  if (chave.startsWith('sb_publishable_')) return 'anon';
+  if (chave.startsWith('sb_secret_')) return 'service_role';
+  const partes = chave.split('.');
+  if (partes.length !== 3) return 'desconhecido';
+  try {
+    const corpo = JSON.parse(Buffer.from(partes[1], 'base64url').toString('utf8'));
+    return { papel: corpo.role ?? 'desconhecido', ref: corpo.ref ?? null };
+  } catch {
+    return 'desconhecido';
+  }
+}
+
+/**
+ * Confere as chaves da Ágora sem acessar a rede. Devolve uma lista de problemas
+ * (vazia quando está tudo certo). O erro clássico é colocar a chave anon (pública)
+ * em AGORA_SUPABASE_SERVICE_KEY: aí o banco responde "permission denied for table
+ * discord_vinculos".
+ */
+export function problemasDeConfiguracao() {
+  if (!agoraConfigurada()) return ['Faltam AGORA_SUPABASE_URL, AGORA_SUPABASE_ANON_KEY ou AGORA_SUPABASE_SERVICE_KEY.'];
+  const problemas = [];
+  const info = (chave) => {
+    const p = papelDaChave(chave);
+    return typeof p === 'string' ? { papel: p, ref: null } : p;
+  };
+  const servico = info(cfg.serviceKey);
+  const anon = info(cfg.anonKey);
+  if (servico.papel !== 'service_role' && servico.papel !== 'desconhecido') {
+    problemas.push(
+      `AGORA_SUPABASE_SERVICE_KEY é uma chave "${servico.papel}", não a service_role. ` +
+        'Use a chave "service_role" (ou "secret", sb_secret_…) em Supabase › Project Settings › API Keys.',
+    );
+  }
+  if (anon.papel === 'service_role') {
+    problemas.push('AGORA_SUPABASE_ANON_KEY está com a chave secreta (service_role). Use a chave "anon"/"publishable".');
+  }
+  const refUrl = /^https:\/\/([a-z0-9]+)\.supabase\.co/i.exec(cfg.url ?? '')?.[1];
+  for (const [nome, i] of [['AGORA_SUPABASE_SERVICE_KEY', servico], ['AGORA_SUPABASE_ANON_KEY', anon]]) {
+    if (refUrl && i.ref && i.ref !== refUrl) {
+      problemas.push(`${nome} é do projeto "${i.ref}", mas AGORA_SUPABASE_URL aponta para "${refUrl}".`);
+    }
+  }
+  return problemas;
+}
+
 let admin = null;
 function clienteAdmin() {
   admin ??= createClient(cfg.url, cfg.serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -36,6 +84,9 @@ export function mensagemDeErro(erro) {
   const msg = erro?.message ?? '';
   if (codigo === '42501' || /row-level security/i.test(msg)) {
     if (/row-level security/i.test(msg)) return 'Você não tem permissão para isso (ainda). Veja os níveis em `/agora perfil`.';
+    if (/discord_vinculos/.test(msg)) {
+      return 'O bot está com a chave errada do Supabase (AGORA_SUPABASE_SERVICE_KEY precisa ser a service_role). Avise a administração.';
+    }
     return msg || 'Você não tem permissão para isso.';
   }
   if (codigo === '23505') return 'Esse registro já existe.';
@@ -151,6 +202,10 @@ async function vinculoDe(user, nome) {
 export async function acessoDe(interaction) {
   if (!agoraConfigurada()) {
     throw new ErroAgora('A prévia da Ágora ainda não foi configurada neste servidor. Avise a administração.');
+  }
+  const problemas = problemasDeConfiguracao();
+  if (problemas.length) {
+    throw new ErroAgora(`A configuração do bot tem um problema (avise a administração):\n• ${problemas.join('\n• ')}`);
   }
   const user = interaction.user;
   const nome = interaction.member?.displayName || interaction.member?.nick || user.globalName || user.username;
