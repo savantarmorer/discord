@@ -16,12 +16,32 @@
 | `/biblioteca` | Temas, tópicos (ler, criar, responder, marcar resposta útil), artigos (ler, escrever, enviar para revisão, marcar como lido), fila de revisão por pares, trilhas e salvos |
 | `/biblioteca acervo [busca] [colecao] [assunto]` | Índice dos documentos da biblioteca do site (Google Drive): navegação por categoria, coleção e assunto, busca pelo título, links que abrem no Drive |
 | `/mutirao` | Projetos, tarefas (assumir/concluir), horas de voluntariado e confirmação pela coordenação, eventos (presença e check-in por código), **marcar evento** (`novo-evento`), caixa transparente e doação via Pix |
-| `/assembleia` | Propostas em debate/votação, voto (a favor, contra, abstenção, bloqueio justificado), comentários, nova proposta e arquivo de decisões |
+| `/assembleia` | Propostas em debate/votação, voto (a favor, contra, abstenção, bloqueio justificado), comentários, nova proposta, arquivo de decisões e **debate ao vivo** (`sessao`) num canal de voz |
+| `/aulas nova · proximas · aula · minhas` | **Aulas pela call**: quem é nível 2+ marca uma aula num canal de voz; a presença conta sozinha; no fim o bot posta estrelas no chat do canal; com boas avaliações, quem ensinou ganha reputação (= Dracmas) |
 
 **Tudo acontece no mesmo banco do app.** Cada pessoa do Discord ganha uma conta na Ágora e o bot age como ela:
 as regras de nível, permissões e limites são as mesmas do app, e o que é feito na prévia (reputação, artigos,
 votos, horas, créditos de Dracma) já está lá quando o app lançar. Para entrar no app com a mesma conta, a pessoa
 cadastra o e-mail com `/agora email`.
+
+### Aulas pela call (e encontros/debates ao vivo)
+
+1. Alguém de nível 2+ marca a aula (`/aulas nova` ou `/menu › Aulas`), no canal de voz padrão
+   (`AGORA_CANAL_VOZ_PADRAO`, hoje `1514437822407381133`) ou noutro. Vira evento **de voz** do Discord, com link para o canal.
+2. Na hora, o evento do Discord começa sozinho. A cada minuto o bot soma quem está no canal (tabela `presencas_voz`).
+   Ele **não entra na call nem fala**: só lê quem está lá (intent `GuildVoiceStates`, que não é privilegiada).
+3. Quando acaba, o evento termina sozinho, a presença de quem ficou pelo menos metade da aula (no máximo 30 min
+   exigidos) é confirmada (+5 de reputação) e o bot posta **estrelas de 1 a 5** no chat do canal de voz (se não puder
+   escrever ali, manda por mensagem direta para quem participou).
+4. Por 48 h, só quem participou avalia (anônimo, com comentário opcional). Quem deu a aula vê média e comentários sem autoria.
+5. Fechada a janela: com **3+ avaliações** de contas com 7+ dias e **média 3,5+**, quem ensinou ganha **+20 pontos**
+   (+30 com média 4,5+), no máximo 3 aulas pontuadas por semana. A mensagem das estrelas vira o resultado.
+
+As mesmas peças servem para **reuniões do Mutirão pela call** (`/mutirao novo-evento canal:` — presença sem código de
+check-in) e **debates ao vivo da Assembleia** (`/assembleia sessao` — presença só para a ata, **sem pontos**: ninguém
+ganha Dracmas por comparecer a decisões; o voto continua pelo bot/app). Regras ajustáveis em `configuracoes.aulas`.
+
+Permissões do bot no canal de voz: **Ver canal**, **Enviar mensagens** (chat do canal) e, no servidor, **Criar eventos**.
 
 ### Eventos automáticos no Discord
 
@@ -50,19 +70,20 @@ Para funcionar, dê ao cargo do bot a permissão **Criar eventos** (ou **Gerenci
 | `AGORA_DOMINIO_EMAIL` | não | Domínio dos e-mails técnicos das contas criadas pelo bot (padrão `discord.agora.app`; nenhum e-mail é enviado a ele) |
 | `AGORA_URL_APP` | não | Link de download do app mostrado nas mensagens |
 | `AGORA_EVENTOS_DISCORD` | não | `false` desliga os eventos automáticos no Discord (padrão: ligado) |
+| `AGORA_CANAL_VOZ_PADRAO` | não | Canal de voz padrão das aulas e debates (padrão `1514437822407381133`) |
 | `RECURSOS_LEGADOS` | não | `true` religa os recursos antigos (exige `SUPABASE_URL`/`SUPABASE_KEY` antigos) |
 
-3. Reinicie o bot. Os comandos antigos somem do Discord e os seis da Ágora aparecem (`/menu`, `/agora`, `/dracmas`,
-   `/biblioteca`, `/mutirao`, `/assembleia`).
+3. Reinicie o bot. Os comandos antigos somem do Discord e os sete da Ágora aparecem (`/menu`, `/agora`, `/dracmas`,
+   `/biblioteca`, `/mutirao`, `/assembleia`, `/aulas`).
 4. (Recomendado) Num canal de boas-vindas, rode `/menu fixar_no_canal:true` e fixe a mensagem.
 
-O bot agora só precisa da intent `Guilds` (as intents privilegiadas de membros e conteúdo de mensagem podem ser
+O bot agora só precisa das intents `Guilds` e `GuildVoiceStates`, que não são privilegiadas (as intents privilegiadas de membros e conteúdo de mensagem podem ser
 desligadas no Developer Portal enquanto `RECURSOS_LEGADOS` estiver desligado).
 
 ## Testar
 
-`npm run testar:agora` simula 107 interações (comandos, botões, menus, formulários, tutorial, acervo e a
-sincronização de eventos com um Discord falso) contra um banco da Ágora com o
+`npm run testar:agora` simula 141 interações (comandos, botões, menus, formulários, tutorial, acervo, aulas pela
+call e a sincronização de eventos com um Discord falso) contra um banco da Ágora com o
 seed de demonstração — por exemplo o Supabase local do app (`supabase start`). Veja o topo de
 `scripts/testar-agora.mjs`. Ele escreve no banco: use só em banco de teste recém-criado.
 

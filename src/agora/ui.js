@@ -29,9 +29,9 @@ export const COR = {
 export const NOMES_NIVEIS = { 1: 'Aprendiz', 2: 'Colaborador', 3: 'Curador', 4: 'Guardião' };
 export const LIMIARES = { 1: 0, 2: 50, 3: 250, 4: 800 };
 export const PERMISSOES_NIVEL = {
-  1: ['Ler tudo', 'Comentar e responder', 'Inscrever-se em tarefas e eventos', 'Votar'],
-  2: ['Criar tópicos', 'Propor artigos', 'Criar tarefas nos seus projetos'],
-  3: ['Revisar e aprovar artigos', 'Montar trilhas', 'Abrir propostas na Assembleia'],
+  1: ['Ler tudo', 'Comentar e responder', 'Inscrever-se em tarefas e eventos', 'Votar', 'Avaliar as aulas de que participou'],
+  2: ['Criar tópicos', 'Propor artigos', 'Criar tarefas nos seus projetos', 'Dar aulas pela call'],
+  3: ['Revisar e aprovar artigos', 'Montar trilhas', 'Abrir propostas na Assembleia', 'Marcar debates ao vivo'],
   4: ['Criar projetos de Mutirão', 'Moderar conteúdo', 'Lançar no caixa dos projetos que coordena'],
 };
 export const ROTULOS_ACAO = {
@@ -43,6 +43,7 @@ export const ROTULOS_ACAO = {
   hora_voluntariado: 'Horas de voluntariado confirmadas',
   presenca_evento: 'Presença confirmada em evento',
   presenca_evento_estorno: 'Presença desfeita',
+  aula_ministrada: 'Aula bem avaliada pelos participantes',
   projeto_concluido: 'Projeto concluído',
   proposta_aprovada: 'Proposta aprovada',
   conteudo_removido: 'Conteúdo removido pela moderação',

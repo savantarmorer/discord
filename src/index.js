@@ -24,7 +24,7 @@ import { deployCommands } from './commands/deploy.js';
 // ============================================
 // 1. Client com o mínimo de permissões necessárias
 // ============================================
-// Sem os recursos antigos, o bot não precisa ver canais de voz, membros nem ler mensagens.
+// Sem os recursos antigos, o bot não precisa ver membros nem ler mensagens.
 const intents = config.legado
   ? [
       GatewayIntentBits.Guilds,
@@ -33,7 +33,9 @@ const intents = config.legado
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.MessageContent,
     ]
-  : [GatewayIntentBits.Guilds];
+  : // GuildVoiceStates (não privilegiada) só para saber quem está na call das aulas:
+    // o bot não entra no canal nem fala nada.
+    [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates];
 
 export const client = new Client({ intents });
 

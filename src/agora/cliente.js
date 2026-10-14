@@ -214,10 +214,14 @@ export async function acessoDe(interaction) {
   let perfil = await dados(adm.from('profiles').select('*').eq('id', vinculo.profile_id).single());
 
   // Assinatura: com cargo configurado, quem tem o cargo é membro ativo; sem cargo, todos participam
+  // Em mensagem direta não há "member": sem como ver o cargo, a assinatura fica como está
+  const semCargoParaVer = Boolean(cfg.cargoMembroId) && !interaction.member;
   const deveSerAtivo = cfg.cargoMembroId ? temCargo(interaction.member, cfg.cargoMembroId) : true;
   const validaAte = perfil.assinatura_valida_ate ? new Date(perfil.assinatura_valida_ate).getTime() : 0;
   const venceLogo = validaAte - Date.now() < 7 * 86_400_000;
-  if (deveSerAtivo && (perfil.status_assinatura !== 'ativo' || venceLogo)) {
+  if (semCargoParaVer) {
+    // nada a sincronizar
+  } else if (deveSerAtivo && (perfil.status_assinatura !== 'ativo' || venceLogo)) {
     perfil = await dados(
       adm.from('profiles')
         .update({ status_assinatura: 'ativo', assinatura_valida_ate: new Date(Date.now() + 30 * 86_400_000).toISOString() })

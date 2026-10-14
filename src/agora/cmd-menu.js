@@ -16,6 +16,7 @@ import * as agora from './cmd-agora.js';
 import * as biblioteca from './cmd-biblioteca.js';
 import * as mutirao from './cmd-mutirao.js';
 import * as assembleia from './cmd-assembleia.js';
+import * as aulas from './cmd-aulas.js';
 import { execute as dracmas } from './cmd-dracmas.js';
 import { COR, EFEMERA, NOMES_NIVEIS, botao, comoMembro, cortar, embed, erro, linha, numero, responder, telaConduta } from './ui.js';
 
@@ -75,7 +76,40 @@ async function telaInicio({ sb, perfil }) {
         botao('menu:mutirao', 'Mutirão', ButtonStyle.Primary, '🤝'),
         botao('menu:assembleia', 'Assembleia', ButtonStyle.Primary, '🏛️'),
       ),
-      linha(botao('menu:tutorial:0', 'Tutorial', ButtonStyle.Secondary, '🎓'), botao('menu:email', 'Usar no app (e-mail)', ButtonStyle.Secondary, '📧'), linkApp()),
+      linha(
+        botao('menu:aulas', 'Aulas', ButtonStyle.Primary, '🎓'),
+        botao('menu:tutorial:0', 'Tutorial', ButtonStyle.Secondary, '❓'),
+        botao('menu:email', 'Usar no app (e-mail)', ButtonStyle.Secondary, '📧'),
+        linkApp(),
+      ),
+    ],
+  };
+}
+
+function telaAulas({ perfil }) {
+  return {
+    embeds: [
+      embed(
+        'Aulas pela call',
+        [
+          'Alguém ensina num canal de voz; quem participa avalia; quem ensina bem ganha Dracmas.',
+          '',
+          '1. **Marque** a aula (nível 2+). Ela vira evento do Discord com link para o canal.',
+          '2. **Entre na call** na hora. A presença conta sozinha — o bot só observa quem está no canal.',
+          '3. **Avalie** com as estrelas que aparecem no chat do canal quando a aula acaba (48 h, anônimo).',
+          '4. Com 3+ avaliações e média 3,5+, quem ensinou ganha **+20 pontos** (+30 com média 4,5+) = Dracmas.',
+          perfil.nivel < 2 && perfil.papel !== 'admin' ? `\nVocê está no nível ${perfil.nivel}: já pode assistir e avaliar; dar aulas é a partir do nível 2.` : '',
+        ].join('\n'),
+        COR.secundaria,
+      ),
+    ],
+    components: [
+      linha(
+        botao('menu:au:proximas', 'Próximas aulas', ButtonStyle.Primary, '📅'),
+        desligado(botao('menu:au:nova', 'Marcar aula', ButtonStyle.Success, '➕'), perfil.nivel >= 2 || perfil.papel === 'admin'),
+        botao('menu:au:minhas', 'Minhas aulas', ButtonStyle.Secondary, '🧑‍🏫'),
+        voltar(),
+      ),
     ],
   };
 }
@@ -225,6 +259,7 @@ export const PAGINAS_TUTORIAL = [
       '• Revisão de artigo concluída: **+10**',
       '• Resposta marcada como útil: **+5**',
       '• Hora de voluntariado confirmada pela coordenação: **+8 por hora**',
+      '• Aula bem avaliada por quem participou: **+20** (+30 com média 4,5+)',
       '• Presença confirmada em evento (check-in): **+5**',
       '• Trilha publicada: **+30** · projeto concluído: **+50** · proposta aprovada: **+20**',
       '• Conteúdo removido pela moderação: **−20**',
@@ -268,17 +303,29 @@ export const PAGINAS_TUTORIAL = [
     ],
   },
   {
-    titulo: '7 · Mutirão',
+    titulo: '7 · Aulas pela call',
+    texto: [
+      '🎓 Quem é nível 2+ pode **dar aulas** num canal de voz: `/aulas nova` ou `/menu › Aulas`. A aula vira um evento do Discord com link para o canal.',
+      '🔊 Na hora, é só **entrar na call**. O bot não entra nem fala: ele só vê quem está no canal e soma os minutos. Quem fica pelo menos metade da aula (no máximo 30 min exigidos) ganha presença (+5).',
+      '⭐ Quando a aula acaba, aparecem **estrelas no chat do canal**. Só quem participou avalia, de forma anônima, por 48 horas — e pode deixar um comentário para quem ensinou.',
+      '🪙 Fechada a avaliação: com **3+ avaliações** de membros com conta de 7+ dias e **média 3,5+**, quem ensinou ganha **+20 pontos** (+30 com média 4,5+), que viram Dracmas. No máximo 3 aulas pontuadas por semana.',
+      '',
+      'Por que essas regras? Para que o Dracma reconheça quem ensina de verdade, e não combinações entre amigos.',
+    ],
+  },
+  {
+    titulo: '8 · Mutirão',
     texto: [
       '🧱 **Projetos**: ações solidárias, cada uma com coordenação, tarefas e caixa.',
       '📋 **Tarefas**: assuma uma, mude o andamento e registre as horas.',
       '⏱️ **Horas**: você registra, a coordenação confirma (+8 de reputação por hora).',
       '📅 **Eventos**: diga se vai; no dia, use o **código de check-in** mostrado pela organização (`/mutirao checkin`). Eventos marcados pelo bot ou pelo app aparecem sozinhos na aba **Eventos** do servidor.',
+      '🔊 **Reuniões pela call** (planejamento, divisão de tarefas): marque com um canal de voz e a presença conta sozinha, sem código.',
       '💚 **Caixa transparente**: toda entrada e saída é pública e não pode ser apagada. Doações via **Pix** entram no caixa assim que o pagamento confirma.',
     ],
   },
   {
-    titulo: '8 · Assembleia',
+    titulo: '9 · Assembleia',
     texto: [
       '1. Alguém de nível 3 abre uma **proposta** (contexto + o que se propõe).',
       '2. **Debate** por pelo menos 5 dias: todo mundo comenta e a proposta pode melhorar.',
@@ -287,15 +334,17 @@ export const PAGINAS_TUTORIAL = [
       '5. A decisão vai para o **arquivo de decisões**, que não pode ser alterado.',
       '',
       'Propostas em debate ou votação aparecem na aba **Eventos** do servidor até a votação fechar.',
+      '🔊 **Debate ao vivo**: quem é nível 3 pode marcar uma conversa sobre a proposta num canal de voz (`/assembleia sessao`). A presença fica registrada, mas **não vale pontos** — ninguém ganha Dracmas por comparecer a decisões, e o voto continua sendo pelo bot ou app.'
     ],
   },
   {
-    titulo: '9 · O que já funciona na prévia',
+    titulo: '10 · O que já funciona na prévia',
     texto: [
       '✅ Conta, perfil, pseudônimo, notificações e busca',
       '✅ Biblioteca completa: tópicos, respostas, artigos, revisão, trilhas e salvos',
       '✅ Acervo da biblioteca do site',
       '✅ Mutirão: projetos, tarefas, horas, eventos, check-in, caixa e Pix',
+      '✅ Aulas e encontros pela call, com presença automática e avaliação',
       '✅ Assembleia: propostas, comentários, votação e decisões',
       '✅ Reputação e créditos de Dracma',
       '',
@@ -447,6 +496,12 @@ export async function handleInteraction(interaction, partes) {
   if (acao === 'biblioteca') return mostrarTela(interaction, telaBiblioteca);
   if (acao === 'mutirao') return mostrarTela(interaction, telaMutirao);
   if (acao === 'assembleia') return mostrarTela(interaction, telaAssembleia);
+  if (acao === 'aulas') return mostrarTela(interaction, telaAulas);
+  if (acao === 'au') {
+    if (a1 === 'nova') return interaction.showModal(aulas.modalAula(null));
+    if (a1 === 'minhas') return aulas.minhas(interaction);
+    return aulas.proximas(interaction);
+  }
   if (acao === 'tutorial') return mostrarTutorial(interaction, a1);
   if (acao === 'tutorial-ir') return mostrarTutorial(interaction, valor);
 
@@ -500,4 +555,4 @@ export async function handleModalSubmit(interaction, partes) {
 }
 
 // Telas exportadas para os testes
-export const telas = { telaInicio, telaConta, telaBiblioteca, telaMutirao, telaAssembleia, painelPublico, telaConduta };
+export const telas = { telaInicio, telaConta, telaBiblioteca, telaMutirao, telaAssembleia, telaAulas, painelPublico, telaConduta };

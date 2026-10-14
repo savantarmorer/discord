@@ -47,8 +47,9 @@ for (const [chave, email, discordId] of [
   ['membro', 'membro@agora.test', '900000000000000002'],
   ['admin', 'admin@agora.test', '900000000000000001'],
   ['coord', 'helena.duarte@agora.test', '900000000000000003'],
+  ['aprendiz', 'gabriel.moura@agora.test', '900000000000000015'],
 ]) {
-  const nome = { membro: 'Membro de Teste', admin: 'Administração Ágora', coord: 'Helena Duarte' }[chave];
+  const nome = { membro: 'Membro de Teste', admin: 'Administração Ágora', coord: 'Helena Duarte', aprendiz: 'Gabriel Moura' }[chave];
   const id = (await um(admin.from('profiles').select('id').eq('nome_exibicao', nome).single())).id;
   await um(admin.from('discord_vinculos').upsert({ discord_id: discordId, profile_id: id, email_tecnico: email }));
   pessoas[chave] = { discordId, nome: chave, perfilId: id };
@@ -285,22 +286,40 @@ const horasEv = (new Date(evNovo.fim) - new Date(evNovo.inicio)) / 3600_000;
 if (evNovo.inicio.startsWith(`${ano}-03-15T17:00`) && horasEv === 3.5 && evNovo.endereco === 'Rua Y, 123') { ok++; console.log('✓ evento gravado com horário de Brasília, duração e endereço'); }
 else { falhas++; console.log('✗ evento gravado errado', evNovo); }
 
-const { iniciarEventosDiscord, sincronizarEventos, desejados } = await import('../src/agora/eventos-discord.js');
-const discord = { criados: [], editados: [], apagados: [], existentes: new Map() };
+const { iniciarEventosDiscord, sincronizarEventos, cicloVoz, desejados } = await import('../src/agora/eventos-discord.js');
+const { ChannelType } = await import('discord.js');
+const discord = { criados: [], editados: [], apagados: [], status: [], existentes: new Map(), mensagens: [] };
 let proximoId = 1;
 const fazerEvento = (dadosEv) => {
   const e = { id: String(proximoId++), status: 1, ...dadosEv,
     async edit(x) { discord.editados.push({ id: e.id, ...x }); Object.assign(e, x); return e; },
+    async setStatus(st) { discord.status.push({ id: e.id, de: e.status, para: st }); e.status = st; return e; },
     async delete() { discord.apagados.push(e.id); discord.existentes.delete(e.id); } };
   discord.existentes.set(e.id, e);
   return e;
 };
+// Canal de voz falso: quem está na call e o chat do canal
+const canalAulas = {
+  id: '1514437822407381133',
+  type: ChannelType.GuildVoice,
+  members: new Map(),
+  async send(x) {
+    const m = { id: `msg-${discord.mensagens.length + 1}`, ...x, async edit(y) { Object.assign(m, y, { editada: true }); return m; } };
+    discord.mensagens.push(m);
+    return m;
+  },
+  messages: { async fetch(id) { return discord.mensagens.find((m) => m.id === id) ?? null; } },
+};
+const naCall = (...ids) => {
+  canalAulas.members = new Map([...ids.map((id) => [id, { id, user: { bot: false } }]), ['bot', { id: 'bot', user: { bot: true } }]]);
+};
 const guilda = {
   id: '1',
-  members: { fetchMe: async () => ({ permissions: { has: () => true } }) },
+  channels: { cache: new Map([[canalAulas.id, canalAulas]]) },
+  members: { fetchMe: async () => ({ permissions: { has: () => true } }), fetch: async () => null },
   scheduledEvents: {
     async create(x) { discord.criados.push(x); return fazerEvento(x); },
-    async fetch() { return discord.existentes; },
+    async fetch(id) { return id ? discord.existentes.get(id) ?? null : discord.existentes; },
   },
 };
 const lista = desejados({ eventos: [{ id: 'e', titulo: 'T', inicio: new Date(Date.now() - 3600_000).toISOString(), fim: new Date(Date.now() + 3600_000).toISOString() }], propostas: [{ id: 'p', titulo: 'P', status: 'votacao', votacao_ate: new Date(Date.now() + 86_400_000).toISOString(), created_at: new Date().toISOString() }] });
@@ -327,6 +346,85 @@ await um(admin.from('eventos').update({ excluido_em: new Date().toISOString() })
 await sincronizarEventos();
 const idDiscordNovo = discord.criados.indexOf(criadoNovo) + 1;
 if (discord.apagados.includes(String(idDiscordNovo))) { ok++; console.log('✓ evento cancelado sai do Discord'); } else { falhas++; console.log('✗ não apagou', discord.apagados); }
+
+console.log('\n== Aulas pela call');
+await caso('/aulas nova abre formulário (canal padrão)', 'membro', { comando: 'aulas', sub: 'nova' }, '[modal aulas:m-nova:-:1514437822407381133');
+await caso('aprendiz (nível 1) não dá aula', 'aprendiz', { comando: 'aulas', campos: { titulo: 'Aula do aprendiz', inicio: `10/04/${ano} 20:00`, duracao: '1', descricao: 'Descrição longa o bastante para a aula.' } }, 'nível 2', 'modal', ['m-nova', '-', canalAulas.id]);
+await caso('membro (nível 2) marca aula', 'membro', { comando: 'aulas', campos: { titulo: 'Hermetismo para iniciantes', inicio: `10/04/${ano} 20:00`, duracao: '1,5', descricao: 'Os sete princípios do Caibalion, com exemplos.' } }, ['Aula marcada', '🎓 Hermetismo para iniciantes', '<#1514437822407381133>', 'é quem dá a aula'], 'modal', ['m-nova', tema.id, canalAulas.id]);
+await caso('aula com mais de 4 horas é recusada', 'membro', { comando: 'aulas', campos: { titulo: 'Maratona', inicio: `11/04/${ano} 20:00`, duracao: '6', descricao: 'Descrição longa o bastante para a aula.' } }, 'entre 0,25 e 4 horas', 'modal', ['m-nova', '-', canalAulas.id]);
+await caso('/aulas proximas', 'coord', { comando: 'aulas', sub: 'proximas' }, ['Próximas aulas', 'Hermetismo para iniciantes', 'com Membro de Teste', 'aulas:abrir']);
+const aulaFutura = await um(admin.from('eventos').select('id').eq('titulo', 'Hermetismo para iniciantes').single());
+await caso('dizer que vai à aula', 'coord', { comando: 'aulas' }, 'Você: **vai**', 'botao', ['rsvp', aulaFutura.id, 'vou']);
+await sincronizarEventos();
+const eventoAula = discord.criados.find((x) => x.name === '🎓 Aula: Hermetismo para iniciantes');
+if (eventoAula?.entityType === 2 && eventoAula.channel === canalAulas.id) { ok++; console.log('✓ aula vira evento de voz do Discord apontando para o canal'); }
+else { falhas++; console.log('✗ evento de voz da aula', eventoAula); }
+
+// Uma aula acontecendo agora (criada direto no banco), para testar a call
+const aulaAgora = await um(admin.from('eventos').insert({
+  tipo: 'aula', titulo: 'Tarô: arcanos maiores', descricao: 'Aula de teste ao vivo.', criado_por: pessoas.membro.perfilId,
+  canal_voz_id: canalAulas.id, inicio: new Date(Date.now() - 60 * 60_000).toISOString(), fim: new Date(Date.now() + 30 * 60_000).toISOString(),
+}).select('id').single());
+await sincronizarEventos();
+await um(admin.rpc('somar_minutos_voz', { p_evento: aulaAgora.id, p_discord_ids: [pessoas.coord.discordId, pessoas.coordProjeto.discordId, pessoas.aprendiz.discordId], p_minutos: 39 }));
+await um(admin.rpc('somar_minutos_voz', { p_evento: aulaAgora.id, p_discord_ids: [pessoas.admin.discordId], p_minutos: 4 }));
+naCall(pessoas.coord.discordId, pessoas.coordProjeto.discordId, pessoas.aprendiz.discordId, pessoas.admin.discordId, pessoas.membro.discordId);
+await cicloVoz();
+const minutos = await um(admin.from('presencas_voz').select('discord_id, minutos').eq('evento_id', aulaAgora.id));
+const min = Object.fromEntries(minutos.map((m) => [m.discord_id, m.minutos]));
+if (min[pessoas.coord.discordId] === 40 && min[pessoas.admin.discordId] === 5 && !min.bot) { ok++; console.log('✓ a cada minuto o bot soma quem está na call (sem contar bots)'); }
+else { falhas++; console.log('✗ minutos na call', min); }
+const idDiscordAula = discord.criados.findIndex((x) => x.name === '🎓 Aula: Tarô: arcanos maiores') + 1;
+if (discord.status.some((x) => x.id === String(idDiscordAula) && x.para === 2)) { ok++; console.log('✓ o evento do Discord começa sozinho na hora'); }
+else { falhas++; console.log('✗ evento não começou', discord.status); }
+await caso('não dá para avaliar antes do fim', 'coord', { comando: 'aulas', customId: `aulas:nota:${aulaAgora.id}:5` }, 'quando a aula estiver terminando', 'botao', ['nota', aulaAgora.id, '5']);
+
+// A aula termina
+await um(admin.from('eventos').update({ fim: new Date(Date.now() - 60_000).toISOString() }).eq('id', aulaAgora.id));
+await cicloVoz();
+const msgAula = discord.mensagens.find((m) => JSON.stringify(m.components?.map((r) => r.toJSON())).includes(`aulas:nota:${aulaAgora.id}:5`));
+if (msgAula) { ok++; console.log('✓ no fim, o bot posta as estrelas no chat do canal de voz'); } else { falhas++; console.log('✗ mensagem das estrelas não foi postada', discord.mensagens.length); }
+if (discord.status.some((x) => x.id === String(idDiscordAula) && x.para === 3)) { ok++; console.log('✓ o evento do Discord termina sozinho'); } else { falhas++; console.log('✗ evento não terminou', discord.status); }
+const presencas = await um(admin.from('rsvps').select('profile_id').eq('evento_id', aulaAgora.id).eq('presente', true));
+if (presencas.length === 3 && !presencas.some((r) => r.profile_id === pessoas.membro.perfilId)) { ok++; console.log('✓ presença confirmada pela call: 3 alunos, sem o professor e sem quem ficou 5 min'); }
+else { falhas++; console.log('✗ presenças', presencas); }
+await cicloVoz();
+if (discord.mensagens.filter((m) => JSON.stringify(m.components?.map((r) => r.toJSON())).includes(aulaAgora.id)).length === 1) { ok++; console.log('✓ a mensagem das estrelas não se repete'); } else { falhas++; console.log('✗ mensagem repetida'); }
+
+await caso('aluna presente avalia (5 estrelas)', 'coord', { comando: 'aulas', customId: `aulas:nota:${aulaAgora.id}:5`, efemera: false }, ['Obrigado pela avaliação', '⭐⭐⭐⭐⭐', 'aulas:comentar:'], 'botao', ['nota', aulaAgora.id, '5']);
+await caso('aluna troca a nota (4)', 'coord', { comando: 'aulas', customId: `aulas:nota:${aulaAgora.id}:4`, efemera: false }, '⭐⭐⭐⭐ para', 'botao', ['nota', aulaAgora.id, '4']);
+await caso('comentário anônimo', 'coord', { comando: 'aulas', customId: `aulas:m-comentario:${aulaAgora.id}`, campos: { comentario: 'Explicou muito bem os arcanos.' } }, 'Comentário enviado', 'modal', ['m-comentario', aulaAgora.id]);
+await caso('aprendiz (nível 1) presente também avalia', 'aprendiz', { comando: 'aulas', customId: `aulas:nota:${aulaAgora.id}:5`, efemera: false }, 'Obrigado pela avaliação', 'botao', ['nota', aulaAgora.id, '5']);
+await caso('coordenação presente avalia', 'coordProjeto', { comando: 'aulas', customId: `aulas:nota:${aulaAgora.id}:5`, efemera: false }, 'Obrigado pela avaliação', 'botao', ['nota', aulaAgora.id, '5']);
+await caso('quem ficou 5 min não avalia (e sabe por quê)', 'admin', { comando: 'aulas', customId: `aulas:nota:${aulaAgora.id}:5`, efemera: false }, 'pelo menos 30 minutos', 'botao', ['nota', aulaAgora.id, '5']);
+await caso('professor não avalia a própria aula', 'membro', { comando: 'aulas', customId: `aulas:nota:${aulaAgora.id}:5`, efemera: false }, 'não avalia a própria aula', 'botao', ['nota', aulaAgora.id, '5']);
+await caso('professor vê média e comentários anônimos', 'membro', { comando: 'aulas', sub: 'aula', opcoes: { aula: aulaAgora.id } }, ['4,67', '3 avaliações', 'Comentários (anônimos)', 'Explicou muito bem']);
+await caso('aluno vê a média, não os comentários', 'aprendiz', { comando: 'aulas', sub: 'aula', opcoes: { aula: aulaAgora.id } }, ['4,67', 'Sua nota: ⭐⭐⭐⭐⭐']).then((t) => {
+  if (t.includes('Explicou muito bem')) { falhas++; ok--; console.log('✗   …mas viu os comentários'); }
+});
+
+// 48 h depois: avaliação fecha, professor ganha reputação e a mensagem mostra o resultado
+await um(admin.from('eventos').update({ inicio: new Date(Date.now() - 51 * 3600_000).toISOString(), fim: new Date(Date.now() - 50 * 3600_000).toISOString() }).eq('id', aulaAgora.id));
+await um(admin.from('profiles').update({ created_at: new Date(Date.now() - 60 * 86_400_000).toISOString() }).in('id', [pessoas.coord.perfilId, pessoas.aprendiz.perfilId, pessoas.coordProjeto.perfilId]));
+await sincronizarEventos();
+const rep = await um(admin.from('reputacao_eventos').select('pontos').eq('acao', 'aula_ministrada').eq('referencia_id', aulaAgora.id).maybeSingle());
+if (rep?.pontos === 30) { ok++; console.log('✓ professor ganhou 30 pontos (média 4,67 ≥ 4,5) = 30 DRC'); } else { falhas++; console.log('✗ reputação do professor', rep); }
+if (msgAula?.editada && JSON.stringify(msgAula.embeds.map((e) => e.toJSON())).includes('30 pontos') && !msgAula.components.length) { ok++; console.log('✓ mensagem das estrelas vira o resultado'); }
+else { falhas++; console.log('✗ resultado não publicado', msgAula?.editada); }
+await caso('/aulas minhas mostra os Dracmas ganhos', 'membro', { comando: 'aulas', sub: 'minhas' }, ['Minhas aulas', 'Tarô: arcanos maiores', '+30 pontos = 30 DRC', 'Hermetismo para iniciantes']);
+await caso('menu › Aulas', 'membro', { comando: 'menu', customId: 'menu:aulas' }, ['Aulas pela call', 'menu:au:nova', 'menu:au:proximas'], 'botao', ['aulas']);
+await caso('menu › Aulas › Marcar aula abre formulário', 'membro', { comando: 'menu', customId: 'menu:au:nova' }, '[modal aulas:m-nova:', 'botao', ['au', 'nova']);
+await caso('tutorial: aulas', 'membro', { comando: 'menu', customId: 'menu:tutorial-ir', valores: ['6'] }, ['Aulas pela call', 'estrelas no chat do canal'], 'botao', ['tutorial-ir']);
+
+console.log('\n== Mutirão e Assembleia pela call');
+await caso('reunião do mutirão pela call', 'coordProjeto', { comando: 'mutirao', customId: `mutirao:m-evento:${projeto.id}:${canalAulas.id}`, campos: { titulo: 'Reunião de planejamento', inicio: `20/04/${ano} 19:00`, duracao: '1', local: '' } }, ['Reunião de planejamento', '🔊 <#1514437822407381133>', 'presença conta sozinha'], 'modal', ['m-evento', projeto.id, canalAulas.id]).then((t) => {
+  if (t.includes('mutirao:codigo:')) { falhas++; ok--; console.log('✗   …mas mostrou código de check-in'); }
+});
+await caso('/assembleia sessao abre formulário', 'admin', { comando: 'assembleia', sub: 'sessao', opcoes: { proposta: emVotacao.id } }, `[modal assembleia:m-sessao:${emVotacao.id}:1514437822407381133`);
+await caso('debate ao vivo exige nível 3', 'membro', { comando: 'assembleia', campos: { inicio: `21/04/${ano} 19:00`, duracao: '1', pauta: '' } }, 'nível 3', 'modal', ['m-sessao', emVotacao.id, canalAulas.id]);
+await caso('debate ao vivo marcado', 'admin', { comando: 'assembleia', campos: { inicio: `21/04/${ano} 19:00`, duracao: '1', pauta: 'Tirar dúvidas antes do voto.' } }, ['Debate ao vivo da proposta', emVotacao.titulo.slice(0, 20), '🔊'], 'modal', ['m-sessao', emVotacao.id, canalAulas.id]);
+await sincronizarEventos();
+if (discord.criados.some((x) => x.name.startsWith('🗳️ Debate ao vivo:') && x.channel === canalAulas.id)) { ok++; console.log('✓ debate ao vivo vira evento de voz no Discord'); } else { falhas++; console.log('✗ debate ao vivo não foi para o Discord'); }
 
 console.log('\n== Assinatura pelo cargo do Discord');
 const { config } = await import('../src/config.js');

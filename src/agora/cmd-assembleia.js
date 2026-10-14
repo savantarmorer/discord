@@ -3,8 +3,9 @@
 // ============================================
 
 import {
-  ActionRowBuilder, ButtonStyle, ModalBuilder, SlashCommandBuilder, TextInputBuilder, TextInputStyle,
+  ActionRowBuilder, ButtonStyle, ChannelType, ModalBuilder, SlashCommandBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
+import { config } from '../config.js';
 import { acessoDe, dados } from './cliente.js';
 import { perfisPorIds } from './cmd-biblioteca.js';
 import { agendarSincronizacao } from './eventos-discord.js';
@@ -51,7 +52,15 @@ export const data = new SlashCommandBuilder()
       .addIntegerOption((o) => o.setName('dias_votacao').setDescription('Dias de votação (mínimo 3)').setRequired(false).setMinValue(3).setMaxValue(30))
       .addBooleanOption((o) => o.setName('rascunho').setDescription('Salvar como rascunho em vez de abrir o debate já').setRequired(false)),
   )
-  .addSubcommand((s) => s.setName('decisoes').setDescription('Arquivo imutável das decisões da comunidade.'));
+  .addSubcommand((s) => s.setName('decisoes').setDescription('Arquivo imutável das decisões da comunidade.'))
+  .addSubcommand((s) =>
+    s.setName('sessao').setDescription('Marca um debate ao vivo de uma proposta num canal de voz (nível Curador).')
+      .addStringOption((o) => o.setName('proposta').setDescription('Comece a digitar o título').setRequired(true).setAutocomplete(true))
+      .addChannelOption((o) =>
+        o.setName('canal').setDescription('Canal de voz (padrão: o canal de aulas e debates)').setRequired(false)
+          .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice),
+      ),
+  );
 
 export async function autocomplete(interaction) {
   const foco = interaction.options.getFocused(true);
@@ -67,6 +76,12 @@ export async function execute(interaction) {
   if (sub === 'propostas') return propostas(interaction, interaction.options.getString('aba') ?? 'votacao');
   if (sub === 'proposta') return mostrarProposta(interaction, idDaOpcao(interaction.options.getString('proposta')));
   if (sub === 'decisoes') return decisoes(interaction);
+  if (sub === 'sessao') {
+    const propostaId = idDaOpcao(interaction.options.getString('proposta'));
+    if (!propostaId) return comoMembro(interaction, async () => erro(interaction, 'Escolha uma proposta da lista.'));
+    const canal = interaction.options.getChannel?.('canal')?.id ?? config.agora.canalVozPadrao;
+    return interaction.showModal(modalSessao(propostaId, canal));
+  }
   if (sub === 'nova') {
     const tipo = interaction.options.getString('tipo');
     const debate = interaction.options.getInteger('dias_debate') ?? 5;
@@ -74,6 +89,22 @@ export async function execute(interaction) {
     const rascunho = interaction.options.getBoolean('rascunho') ? 1 : 0;
     return interaction.showModal(modalNovaProposta(tipo, debate, votacao, rascunho));
   }
+}
+
+export function modalSessao(propostaId, canalId) {
+  const c = (id, rotulo, estilo, { min, max, obrig = true, placeholder, valor } = {}) => {
+    const t = new TextInputBuilder().setCustomId(id).setLabel(rotulo).setStyle(estilo).setRequired(obrig);
+    if (min) t.setMinLength(min);
+    if (max) t.setMaxLength(max);
+    if (placeholder) t.setPlaceholder(placeholder);
+    if (valor) t.setValue(valor);
+    return new ActionRowBuilder().addComponents(t);
+  };
+  return new ModalBuilder().setCustomId(`assembleia:m-sessao:${propostaId}:${canalId}`).setTitle('Debate ao vivo').addComponents(
+    c('inicio', 'Começa em (dia/mês/ano hora:min)', TextInputStyle.Short, { min: 5, max: 20, placeholder: '25/10/2026 20:00' }),
+    c('duracao', 'Duração em horas', TextInputStyle.Short, { max: 5, valor: '1' }),
+    c('pauta', 'Pauta (opcional)', TextInputStyle.Paragraph, { max: 1000, obrig: false }),
+  );
 }
 
 export function modalNovaProposta(tipo, debate = 5, votacao = 3, rascunho = 0) {
@@ -248,6 +279,38 @@ export async function handleModalSubmit(interaction, partes) {
     return comoMembro(interaction, async ({ sb, perfil }) => {
       await dados(sb.from('votos').upsert({ proposta_id: a1, profile_id: perfil.id, rodada: Number(a2), voto: 'bloqueio', justificativa: texto('justificativa'), peso: 1 }, { onConflict: 'proposta_id,profile_id,rodada' }));
       return mostrarProposta(interaction, a1);
+    });
+  }
+  if (tipo === 'm-sessao') {
+    // a1 = proposta, a2 = canal de voz
+    const { dataHoraBr, numeroBr, mostrarEvento } = await import('./cmd-mutirao.js');
+    return comoMembro(interaction, async ({ sb, perfil }) => {
+      if (perfil.nivel < 3 && perfil.papel !== 'admin') {
+        return erro(interaction, `Marcar debates ao vivo é para o nível 3 (Curador), como abrir propostas. Você está no nível ${perfil.nivel}.`);
+      }
+      const p = await dados(sb.from('propostas').select('id, titulo, status').eq('id', a1).maybeSingle());
+      if (!p) return erro(interaction, 'Proposta não encontrada.');
+      if (!['debate', 'votacao'].includes(p.status)) return erro(interaction, 'Só dá para marcar debate ao vivo de propostas em debate ou votação.');
+      const inicio = dataHoraBr(texto('inicio'));
+      if (!inicio) return erro(interaction, 'Não entendi a data. Use o formato **25/10/2026 20:00** (horário de Brasília).');
+      if (inicio.getTime() < Date.now() - 5 * 60_000) return erro(interaction, 'Essa data já passou.');
+      const horas = numeroBr(texto('duracao'));
+      if (!(horas >= 0.25 && horas <= 6)) return erro(interaction, 'A duração precisa estar entre 0,25 e 6 horas.');
+      const ev = await dados(
+        sb.from('eventos').insert({
+          tipo: 'assembleia',
+          titulo: cortar(p.titulo, 120),
+          descricao: texto('pauta') || null,
+          proposta_id: p.id,
+          canal_voz_id: a2,
+          local_nome: 'Canal de voz do Discord',
+          criado_por: perfil.id,
+          inicio: inicio.toISOString(),
+          fim: new Date(inicio.getTime() + horas * 3600_000).toISOString(),
+        }).select('id').single(),
+      );
+      agendarSincronizacao();
+      return mostrarEvento(interaction, ev.id);
     });
   }
   if (tipo === 'm-nova') {

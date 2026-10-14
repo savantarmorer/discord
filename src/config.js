@@ -72,5 +72,7 @@ export const config = {
     // Eventos do Mutirão e votações da Assembleia viram eventos agendados no Discord
     // (precisa da permissão "Criar eventos"/"Gerenciar eventos"). Desligue com "false".
     eventosDiscord: process.env.AGORA_EVENTOS_DISCORD !== 'false',
+    // Canal de voz padrão das aulas e debates ao vivo (quem marca pode escolher outro)
+    canalVozPadrao: process.env.AGORA_CANAL_VOZ_PADRAO || '1514437822407381133',
   },
 };

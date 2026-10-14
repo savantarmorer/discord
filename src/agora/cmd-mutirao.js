@@ -3,7 +3,7 @@
 // ============================================
 
 import {
-  ActionRowBuilder, AttachmentBuilder, ButtonStyle, ModalBuilder, SlashCommandBuilder, TextInputBuilder, TextInputStyle,
+  ActionRowBuilder, AttachmentBuilder, ButtonStyle, ChannelType, ModalBuilder, SlashCommandBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { acessoDe, dados } from './cliente.js';
 import { perfisPorIds } from './cmd-biblioteca.js';
@@ -15,6 +15,7 @@ import {
 const ROTULO_STATUS_PROJETO = { planejamento: 'Em planejamento', ativo: 'Ativo', concluido: 'Concluído', cancelado: 'Cancelado' };
 const ROTULO_TAREFA = { a_fazer: 'A fazer', fazendo: 'Fazendo', feito: 'Feito' };
 const ROTULO_RSVP = { vou: 'Vou', talvez: 'Talvez', nao_vou: 'Não vou' };
+const ICONE_TIPO = { mutirao: '🤝 ', aula: '🎓 ', assembleia: '🗳️ ', encontro: '☕ ' };
 
 const opProjeto = (o, obrig = true) => o.setName('projeto').setDescription('Projeto').setRequired(obrig).setAutocomplete(true);
 const opEvento = (o) => o.setName('evento').setDescription('Evento').setRequired(true).setAutocomplete(true);
@@ -36,7 +37,11 @@ export const data = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName('evento').setDescription('Detalhes do evento e sua presença.').addStringOption((o) => opEvento(o)))
   .addSubcommand((s) =>
     s.setName('novo-evento').setDescription('Marca um evento (coordenação do projeto ou nível Guardião). Vira evento do Discord.')
-      .addStringOption((o) => opProjeto(o, false)),
+      .addStringOption((o) => opProjeto(o, false))
+      .addChannelOption((o) =>
+        o.setName('canal').setDescription('Encontro pela call? Escolha o canal de voz: a presença conta sozinha').setRequired(false)
+          .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice),
+      ),
   )
   .addSubcommand((s) =>
     s.setName('checkin').setDescription('Confirma presença no evento com o código mostrado pela organização.')
@@ -82,7 +87,7 @@ export async function execute(interaction) {
     case 'confirmar-horas': return horasPendentes(interaction);
     case 'eventos': return eventos(interaction);
     case 'evento': return mostrarEvento(interaction, eventoId);
-    case 'novo-evento': return interaction.showModal(modalEvento(projetoId));
+    case 'novo-evento': return interaction.showModal(modalEvento(projetoId, interaction.options.getChannel?.('canal')?.id ?? null));
     case 'checkin': return checkin(interaction, eventoId);
     case 'caixa': return caixa(interaction, projetoId);
     case 'doar': return doar(interaction, projetoId);
@@ -244,12 +249,12 @@ async function analisarHoras(interaction, id) {
 export async function eventos(interaction) {
   return comoMembro(interaction, async ({ sb }) => {
     const lista = await dados(
-      sb.from('eventos').select('id, titulo, inicio, fim, local_nome, nucleo:nucleos(cidade, estado), projeto:projetos(titulo)').is('excluido_em', null)
+      sb.from('eventos').select('id, tipo, titulo, inicio, fim, local_nome, canal_voz_id, nucleo:nucleos(cidade, estado), projeto:projetos(titulo)').is('excluido_em', null)
         .gte('fim', new Date().toISOString()).order('inicio').limit(15),
     );
     if (!lista.length) return responder(interaction, { embeds: [embed('Eventos', 'Nenhum evento marcado por enquanto.', COR.neutra)] });
     return responder(interaction, {
-      embeds: [embed('Próximos eventos', lista.map((e) => `**${cortar(e.titulo, 90)}** · <t:${Math.floor(new Date(e.inicio).getTime() / 1000)}:f>\n${[e.local_nome, e.nucleo ? `${e.nucleo.cidade}/${e.nucleo.estado}` : null, e.projeto?.titulo].filter(Boolean).join(' · ')}`).join('\n\n'), COR.secundaria)],
+      embeds: [embed('Próximos eventos', lista.map((e) => `${ICONE_TIPO[e.tipo] ?? ''}**${cortar(e.titulo, 90)}** · <t:${Math.floor(new Date(e.inicio).getTime() / 1000)}:f>\n${[e.canal_voz_id ? `🔊 <#${e.canal_voz_id}>` : e.local_nome, e.nucleo ? `${e.nucleo.cidade}/${e.nucleo.estado}` : null, e.projeto?.titulo].filter(Boolean).join(' · ')}`).join('\n\n'), COR.secundaria)],
       components: [menuAbrir('mutirao:abrir-evento', 'Abrir um evento…', lista.map((e) => ({ rotulo: e.titulo, valor: e.id, descricao: dataHora(e.inicio) })))],
     });
   });
@@ -258,8 +263,9 @@ export async function eventos(interaction) {
 export async function mostrarEvento(interaction, id) {
   if (!id) return comoMembro(interaction, async () => erro(interaction, 'Escolha um evento da lista.'));
   return comoMembro(interaction, async ({ sb, perfil }) => {
-    const ev = await dados(sb.from('eventos').select('*, nucleo:nucleos(cidade, estado), projeto:projetos(titulo)').eq('id', id).maybeSingle());
+    const ev = await dados(sb.from('eventos').select('*, nucleo:nucleos(cidade, estado), projeto:projetos(titulo), proposta:propostas(titulo)').eq('id', id).maybeSingle());
     if (!ev) return erro(interaction, 'Evento não encontrado.');
+    if (ev.tipo === 'aula') return (await import('./cmd-aulas.js')).mostrarAula(interaction, id);
     const rsvps = await dados(sb.from('rsvps').select('profile_id, status, presente').eq('evento_id', id));
     const meu = rsvps.find((r) => r.profile_id === perfil.id);
     const confirmados = rsvps.filter((r) => r.status === 'vou').length;
@@ -267,7 +273,7 @@ export async function mostrarEvento(interaction, id) {
     const t1 = Math.floor(new Date(ev.fim).getTime() / 1000);
     const e = embed(
       ev.titulo,
-      `<t:${t0}:F> até <t:${t1}:t> (<t:${t0}:R>)\n${[ev.local_nome, ev.endereco].filter(Boolean).join(' — ')}${ev.nucleo ? `\nNúcleo ${ev.nucleo.cidade}/${ev.nucleo.estado}` : ''}${ev.projeto ? ` · ${ev.projeto.titulo}` : ''}\n\n${cortar(ev.descricao ?? '', 1500)}`,
+      `${ev.tipo === 'assembleia' ? `🗳️ Debate ao vivo da proposta **${ev.proposta?.titulo ?? ''}**\n` : ''}<t:${t0}:F> até <t:${t1}:t> (<t:${t0}:R>)\n${ev.canal_voz_id ? `🔊 <#${ev.canal_voz_id}> — a presença conta sozinha pela call` : [ev.local_nome, ev.endereco].filter(Boolean).join(' — ')}${ev.nucleo ? `\nNúcleo ${ev.nucleo.cidade}/${ev.nucleo.estado}` : ''}${ev.projeto ? ` · ${ev.projeto.titulo}` : ''}\n\n${cortar(ev.descricao ?? '', 1500)}`,
       COR.secundaria,
     );
     e.addFields({
@@ -281,7 +287,7 @@ export async function mostrarEvento(interaction, id) {
         botao(`mutirao:rsvp:${id}:nao_vou`, 'Não vou', meu?.status === 'nao_vou' ? ButtonStyle.Danger : ButtonStyle.Secondary),
       ),
     ];
-    if (ev.criado_por === perfil.id || perfil.papel === 'admin') {
+    if ((ev.criado_por === perfil.id || perfil.papel === 'admin') && !ev.canal_voz_id) {
       componentes.push(linha(botao(`mutirao:codigo:${id}`, 'Mostrar código de check-in (organização)', ButtonStyle.Secondary, '🔑')));
     }
     return responder(interaction, { embeds: [e], components: componentes });
@@ -404,7 +410,7 @@ export async function handleInteraction(interaction, partes) {
 }
 
 /** "1.234,56" → 1234.56 · "2,5" → 2.5 · "2.5" → 2.5 */
-function numeroBr(texto) {
+export function numeroBr(texto) {
   let t = String(texto).trim().replace(/[^\d.,]/g, '');
   if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
   const n = Number(t);
@@ -413,7 +419,7 @@ function numeroBr(texto) {
 
 export async function handleModalSubmit(interaction, partes) {
   const [tipo, a1, a2] = partes;
-  if (tipo === 'm-evento') return criarEvento(interaction, a1 === '-' ? null : a1);
+  if (tipo === 'm-evento') return criarEvento(interaction, a1 === '-' ? null : a1, a2 && a2 !== '-' ? a2 : null);
   if (tipo === 'm-doar') {
     const valor = numeroBr(interaction.fields.getTextInputValue('valor'));
     if (!(valor >= 1)) return comoMembro(interaction, async () => erro(interaction, 'Informe um valor de pelo menos R$ 1,00.'));
@@ -427,7 +433,7 @@ export async function handleModalSubmit(interaction, partes) {
 }
 
 // ------------------------------------------------------------------ novo evento
-export function modalEvento(projetoId) {
+export function modalEvento(projetoId, canalId = null) {
   const campo = (id, rotulo, estilo, { min, max, obrig = true, placeholder } = {}) => {
     const c = new TextInputBuilder().setCustomId(id).setLabel(rotulo).setStyle(estilo).setRequired(obrig);
     if (min) c.setMinLength(min);
@@ -435,11 +441,13 @@ export function modalEvento(projetoId) {
     if (placeholder) c.setPlaceholder(placeholder);
     return new ActionRowBuilder().addComponents(c);
   };
-  return new ModalBuilder().setCustomId(`mutirao:m-evento:${projetoId ?? '-'}`).setTitle('Novo evento do Mutirão').addComponents(
+  return new ModalBuilder().setCustomId(`mutirao:m-evento:${projetoId ?? '-'}:${canalId ?? '-'}`).setTitle(canalId ? 'Novo encontro pela call' : 'Novo evento do Mutirão').addComponents(
     campo('titulo', 'Título', TextInputStyle.Short, { min: 3, max: 120, placeholder: 'Ex.: Mutirão de pintura da escola' }),
     campo('inicio', 'Começa em (dia/mês/ano hora:min)', TextInputStyle.Short, { min: 10, max: 20, placeholder: '25/10/2026 14:00' }),
     campo('duracao', 'Duração em horas', TextInputStyle.Short, { max: 5, placeholder: '3' }),
-    campo('local', 'Local (nome e endereço)', TextInputStyle.Short, { min: 3, max: 200, placeholder: 'Escola Estadual X — Rua Y, 123' }),
+    canalId
+      ? campo('local', 'Local (opcional: é pela call)', TextInputStyle.Short, { max: 200, obrig: false, placeholder: 'Canal de voz do Discord' })
+      : campo('local', 'Local (nome e endereço)', TextInputStyle.Short, { min: 3, max: 200, placeholder: 'Escola Estadual X — Rua Y, 123' }),
     campo('descricao', 'O que vamos fazer (opcional)', TextInputStyle.Paragraph, { max: 1500, obrig: false }),
   );
 }
@@ -457,7 +465,7 @@ export function dataHoraBr(texto) {
   return new Date(dia.getTime() + ((Number(h) + 3) * 60 + Number(min ?? 0)) * 60_000);
 }
 
-async function criarEvento(interaction, projetoId) {
+async function criarEvento(interaction, projetoId, canalId = null) {
   const texto = (c) => interaction.fields.getTextInputValue(c)?.trim() ?? '';
   return comoMembro(interaction, async ({ sb, perfil }) => {
     if (!projetoId && perfil.nivel < 4 && perfil.papel !== 'admin') {
@@ -468,14 +476,16 @@ async function criarEvento(interaction, projetoId) {
     if (inicio.getTime() < Date.now() - 5 * 60_000) return erro(interaction, 'Essa data já passou.');
     const horas = numeroBr(texto('duracao'));
     if (!(horas > 0 && horas <= 72)) return erro(interaction, 'A duração precisa estar entre 0,5 e 72 horas.');
-    const [localNome, ...resto] = texto('local').split(/\s+[—–-]\s+/);
+    const local = texto('local') || (canalId ? 'Canal de voz do Discord' : '');
+    const [localNome, ...resto] = local.split(/\s+[—–-]\s+/);
     const ev = await dados(
       sb.from('eventos').insert({
         titulo: texto('titulo'),
         descricao: texto('descricao') || null,
         projeto_id: projetoId,
         criado_por: perfil.id,
-        local_nome: localNome || texto('local'),
+        local_nome: localNome || local,
+        canal_voz_id: canalId,
         endereco: resto.join(' — ') || null,
         inicio: inicio.toISOString(),
         fim: new Date(inicio.getTime() + horas * 3600_000).toISOString(),

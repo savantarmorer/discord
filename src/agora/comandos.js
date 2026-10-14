@@ -2,7 +2,7 @@
 // agora/comandos.js — Comandos da prévia da Ágora
 // ============================================
 // /menu (painel com botões e tutorial), /agora (conta, perfil, busca), /dracmas,
-// /biblioteca (com o acervo do site), /mutirao e /assembleia.
+// /biblioteca (com o acervo do site), /mutirao, /assembleia e /aulas (aulas pela call).
 // Botões, menus e formulários usam customId "<comando>:<ação>:…" e são roteados
 // pelo index.js para handleInteraction / handleModalSubmit de cada comando.
 
@@ -12,5 +12,6 @@ import * as dracmas from './cmd-dracmas.js';
 import * as biblioteca from './cmd-biblioteca.js';
 import * as mutirao from './cmd-mutirao.js';
 import * as assembleia from './cmd-assembleia.js';
+import * as aulas from './cmd-aulas.js';
 
-export const comandosAgora = [menu, agora, dracmas, biblioteca, mutirao, assembleia];
+export const comandosAgora = [menu, agora, dracmas, biblioteca, mutirao, assembleia, aulas];
