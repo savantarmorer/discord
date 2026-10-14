@@ -1,7 +1,7 @@
 {
   "name": "discord-voice-metrics-bot",
   "version": "1.0.0",
-  "description": "Bot Discord para métricas avançadas de canais de voz — rastreia tempo de presença e tempo de fala real.",
+  "description": "Bot do Discord da Ágora: prévia do app (Biblioteca, Mutirão, Assembleia e Dracmas) e, opcionalmente, métricas de voz.",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
@@ -10,7 +10,8 @@
     "dev": "node --watch src/index.js",
     "start:player": "node src/player/index.js",
     "deploy-commands:player": "node src/player/deploy.js",
-    "dev:player": "node --watch src/player/index.js"
+    "dev:player": "node --watch src/player/index.js",
+    "testar:agora": "node scripts/testar-agora.mjs"
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.1",

@@ -1,4 +1,58 @@
-# 🎙️ Discord Voice Metrics Bot
+# 🏛️ Bot da Ágora — prévia pelo Discord
+
+> **Modo atual: prévia da Ágora.** O bot deixou de falar na call, de postar no chat geral e de mudar
+> apelidos. Ele só responde aos comandos da Ágora, sempre com respostas visíveis apenas para quem usou o comando.
+> Os recursos antigos (métricas de voz, TTS, conquistas nos apelidos, ARG, clima, gravação de calls, bot de
+> reprodução, comandos `$`/`%`) continuam no código e voltam com `RECURSOS_LEGADOS=true`.
+
+## O que dá para fazer pelo Discord
+
+| Comando | O que faz |
+|---|---|
+| `/agora entrar` | Cria a conta da pessoa na Ágora e pede o aceite do Código de Conduta |
+| `/agora perfil [membro]` · `pseudonimo` · `email` · `notificacoes` · `buscar` · `ajuda` | Nível, reputação e contribuições; pseudônimo; e-mail para usar a mesma conta no app; notificações; busca em tudo |
+| `/dracmas` | Prévia dos Dracmas (DRC): créditos acumulados por reputação, épocas e próximo fechamento |
+| `/biblioteca` | Temas, tópicos (ler, criar, responder, marcar resposta útil), artigos (ler, escrever, enviar para revisão, marcar como lido), fila de revisão por pares, trilhas e salvos |
+| `/mutirao` | Projetos, tarefas (assumir/concluir), horas de voluntariado e confirmação pela coordenação, eventos (presença e check-in por código), caixa transparente e doação via Pix |
+| `/assembleia` | Propostas em debate/votação, voto (a favor, contra, abstenção, bloqueio justificado), comentários, nova proposta e arquivo de decisões |
+
+**Tudo acontece no mesmo banco do app.** Cada pessoa do Discord ganha uma conta na Ágora e o bot age como ela:
+as regras de nível, permissões e limites são as mesmas do app, e o que é feito na prévia (reputação, artigos,
+votos, horas, créditos de Dracma) já está lá quando o app lançar. Para entrar no app com a mesma conta, a pessoa
+cadastra o e-mail com `/agora email`.
+
+## Configurar
+
+1. Aplique as migrações da Ágora no Supabase do app (inclui a tabela `discord_vinculos`).
+2. No serviço do bot (Render/Railway), defina:
+
+| Variável | Obrigatória | Onde achar |
+|---|---|---|
+| `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID` | sim | Como antes |
+| `AGORA_SUPABASE_URL` | sim | Supabase do app › Project Settings › API › Project URL |
+| `AGORA_SUPABASE_ANON_KEY` | sim | Mesma página › chave `anon` |
+| `AGORA_SUPABASE_SERVICE_KEY` | sim | Mesma página › chave `service_role` (fica só no servidor do bot) |
+| `AGORA_JWT_SECRET` | não | Project Settings › API › JWT Secret (legado). Com ele as sessões são assinadas localmente; sem ele o bot usa links mágicos gerados pelo servidor |
+| `AGORA_CARGO_MEMBRO_ID` | não | ID do cargo de membros pagantes. Quem tem o cargo fica com assinatura ativa; sem a variável, todo o servidor participa |
+| `AGORA_DOMINIO_EMAIL` | não | Domínio dos e-mails técnicos das contas criadas pelo bot (padrão `discord.agora.app`; nenhum e-mail é enviado a ele) |
+| `AGORA_URL_APP` | não | Link de download do app mostrado nas mensagens |
+| `RECURSOS_LEGADOS` | não | `true` religa os recursos antigos (exige `SUPABASE_URL`/`SUPABASE_KEY` antigos) |
+
+3. Reinicie o bot. Os comandos antigos somem do Discord e os cinco da Ágora aparecem.
+
+O bot agora só precisa da intent `Guilds` (as intents privilegiadas de membros e conteúdo de mensagem podem ser
+desligadas no Developer Portal enquanto `RECURSOS_LEGADOS` estiver desligado).
+
+## Testar
+
+`npm run testar:agora` simula 57 interações (comandos, botões, menus e formulários) contra um banco da Ágora com o
+seed de demonstração — por exemplo o Supabase local do app (`supabase start`). Veja o topo de
+`scripts/testar-agora.mjs`. Ele escreve no banco: use só em banco de teste recém-criado.
+
+---
+
+# 🎙️ Recursos antigos (desligados na prévia)
+
 
 Bot Discord avançado para rastrear **tempo de presença** e **tempo de fala real** dos usuários em canais de voz.
 
