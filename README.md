@@ -11,6 +11,7 @@
 |---|---|
 | `/menu` | **Jeito mais fácil**: painel com botões para tudo (criar conta, e-mail do app, Dracmas, Biblioteca, Acervo, Mutirão, Assembleia) e um **tutorial** em 9 páginas. `/menu fixar_no_canal:true` (administração) publica um painel fixo no canal; cada clique abre o menu pessoal de quem clicou |
 | `/agora app` | Código de uso único para entrar no app com a mesma conta (sem e-mail nem senha) |
+| `/agora reconhecer membro pontos motivo` | (Administração) Reconhece contribuições anteriores: até 250 pontos por pessoa, motivo público, **dá nível mas não gera Dracmas**. Serve para semear os primeiros Colaboradores e Curadores |
 | `/agora entrar` | Cria a conta da pessoa na Ágora e pede o aceite do Código de Conduta |
 | `/agora perfil [membro]` · `pseudonimo` · `email` · `notificacoes` · `buscar` · `ajuda` | Nível, reputação e contribuições; pseudônimo; e-mail para usar a mesma conta no app; notificações; busca em tudo |
 | `/dracmas` | Prévia dos Dracmas (DRC): créditos acumulados por reputação, épocas e próximo fechamento |
@@ -87,6 +88,9 @@ Para funcionar, dê ao cargo do bot a permissão **Criar eventos** (ou **Gerenci
 | `AGORA_CANAL_VOZ_PADRAO` | não | Canal de voz padrão das aulas e debates (padrão `1514437822407381133`) |
 | `RECURSOS_LEGADOS` | não | `true` religa os recursos antigos (exige `SUPABASE_URL`/`SUPABASE_KEY` antigos) |
 
+   **Sempre que atualizar o bot, rode também o workflow "Ágora — backend Supabase"** (Actions › Run workflow): o bot
+   novo usa tabelas e funções novas. Se o banco estiver atrasado, o bot avisa no log ao iniciar e os comandos mostram
+   “O banco da Ágora está desatualizado”.
 3. Reinicie o bot. Os comandos antigos somem do Discord e os sete da Ágora aparecem (`/menu`, `/agora`, `/dracmas`,
    `/biblioteca`, `/mutirao`, `/assembleia`, `/aulas`).
 4. (Recomendado) Num canal de boas-vindas, rode `/menu fixar_no_canal:true` e fixe a mensagem.

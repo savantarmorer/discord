@@ -442,6 +442,19 @@ await caso('debate ao vivo marcado', 'admin', { comando: 'assembleia', campos: {
 await sincronizarEventos();
 if (discord.criados.some((x) => x.name.startsWith('🗳️ Debate ao vivo:') && x.channel === canalAulas.id)) { ok++; console.log('✓ debate ao vivo vira evento de voz no Discord'); } else { falhas++; console.log('✗ debate ao vivo não foi para o Discord'); }
 
+console.log('\n== Nível 1: como subir');
+await caso('menu › Subir de nível', 'aprendiz', { comando: 'menu', customId: 'menu:subir' }, ['Como subir de nível', 'faltam', '+8 por hora', 'menu:au:proximas', 'menu:m:projetos'], 'botao', ['subir']);
+await caso('aprendiz entra num projeto do Mutirão', 'aprendiz', { comando: 'mutirao' }, 'Caixa transparente', 'botao', ['participar', projeto.id]);
+await caso('aprendiz registra horas', 'aprendiz', { comando: 'mutirao', sub: 'horas', opcoes: { projeto: projeto.id, horas: 3, descricao: 'Separei doações no sábado.' } }, 'Horas registradas');
+await caso('aprendiz responde um tópico', 'aprendiz', { comando: 'biblioteca', campos: { corpo: 'Minha primeira resposta na Ágora.' } }, 'Minha primeira resposta', 'modal', ['m-resposta', topico.id]);
+await caso('aprendiz vota', 'aprendiz', { comando: 'assembleia' }, 'Seu voto: **Contra**', 'botao', ['votar', emVotacao.id, String(emVotacao.rodada), 'contra']);
+const antesRec = (await um(admin.from('profiles').select('nivel, reputacao_total').eq('id', pessoas.aprendiz.perfilId).single()));
+await caso('só admin reconhece contribuições', 'membro', { comando: 'agora', sub: 'reconhecer', opcoes: { membro: { id: pessoas.aprendiz.discordId, username: 'aprendiz', bot: false }, pontos: 50, motivo: 'Ajudou muito no Discord' } }, 'Só a administração');
+await caso('admin reconhece contribuições anteriores', 'admin', { comando: 'agora', sub: 'reconhecer', opcoes: { membro: { id: pessoas.aprendiz.discordId, username: 'aprendiz', bot: false, toString: () => '@aprendiz' }, pontos: 50, motivo: 'Organizou os grupos de estudo no Discord por um ano' } }, ['Contribuição reconhecida', 'não gera Dracmas', 'Colaborador']);
+const depoisRec = (await um(admin.from('profiles').select('nivel, reputacao_total').eq('id', pessoas.aprendiz.perfilId).single()));
+if (depoisRec.reputacao_total === antesRec.reputacao_total + 50 && depoisRec.nivel >= 2) { ok++; console.log('✓ reconhecimento sobe o nível do aprendiz'); } else { falhas++; console.log('✗ reconhecimento', antesRec, depoisRec); }
+await caso('limite de reconhecimento por pessoa', 'admin', { comando: 'agora', sub: 'reconhecer', opcoes: { membro: { id: pessoas.aprendiz.discordId, username: 'aprendiz', bot: false }, pontos: 250, motivo: 'Mais contribuições anteriores' } }, 'Limite de 250');
+
 console.log('\n== Assinatura pelo cargo do Discord');
 const { config } = await import('../src/config.js');
 config.agora.cargoMembroId = '123';

@@ -83,7 +83,7 @@ export function mensagemDeErro(erro) {
   const codigo = erro?.code;
   const msg = erro?.message ?? '';
   if (codigo === '42501' || /row-level security/i.test(msg)) {
-    if (/row-level security/i.test(msg)) return 'Você não tem permissão para isso (ainda). Veja os níveis em `/agora perfil`.';
+    if (/row-level security/i.test(msg)) return 'Você ainda não tem nível para isso. Veja o que já dá para fazer e como subir em `/menu` › Subir de nível.';
     if (/discord_vinculos/.test(msg)) {
       return 'O bot está com a chave errada do Supabase (AGORA_SUPABASE_SERVICE_KEY precisa ser a service_role). Avise a administração.';
     }
@@ -98,7 +98,31 @@ export function mensagemDeErro(erro) {
   if (codigo === 'PGRST116') return 'Não encontramos o que você procurou.';
   if (codigo === '22P02') return 'Identificador inválido. Escolha uma opção da lista.';
   if (/JWT expired/i.test(msg)) return 'Sua sessão expirou. Tente de novo.';
+  if (BANCO_DESATUALIZADO.test(msg) || codigo === 'PGRST202' || codigo === 'PGRST205' || codigo === '42P01' || codigo === '42703') {
+    return 'O banco da Ágora está desatualizado em relação ao bot. A administração precisa rodar “Ágora — backend Supabase” no GitHub (Actions).';
+  }
   return msg || 'Algo deu errado. Tente de novo.';
+}
+
+const BANCO_DESATUALIZADO = /schema cache|does not exist|Could not find the (function|table)/i;
+
+/**
+ * Confere se o banco tem as tabelas/funções que este bot usa (as migrações mais novas).
+ * Devolve a mensagem de erro ou null. Chamado ao iniciar, para avisar no log.
+ */
+export async function verificarBanco() {
+  if (!agoraConfigurada() || problemasDeConfiguracao().length) return null;
+  const adm = clienteAdmin();
+  const checagens = [
+    adm.from('acervo_documentos').select('id').limit(1),
+    adm.from('eventos').select('tipo, canal_voz_id, avaliacao_fechada_em').limit(1),
+    adm.from('codigos_login').select('codigo_hash').limit(1),
+    adm.from('reconhecimentos').select('id').limit(1),
+  ];
+  for (const r of await Promise.all(checagens)) {
+    if (r.error) return r.error.message;
+  }
+  return null;
 }
 
 /** Desembrulha { data, error } do Supabase, lançando ErroAgora em português. */
@@ -171,7 +195,7 @@ function temCargo(member, cargoId) {
 }
 
 /** Busca o vínculo; cria a conta da Ágora na primeira vez. */
-async function vinculoDe(user, nome) {
+export async function vinculoDe(user, nome) {
   const adm = clienteAdmin();
   const existente = await dados(
     adm.from('discord_vinculos').select('profile_id, email_tecnico, assinatura_pelo_discord').eq('discord_id', user.id).maybeSingle(),

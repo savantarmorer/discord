@@ -5,7 +5,7 @@
 import crypto from 'node:crypto';
 import { ButtonBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
 import { config } from '../config.js';
-import { clienteAdmin, dados, limparSessoes, perfilIdDoDiscord } from './cliente.js';
+import { clienteAdmin, dados, limparSessoes, perfilIdDoDiscord, vinculoDe } from './cliente.js';
 import {
   COR, LIMIARES, NOMES_NIVEIS, PERMISSOES_NIVEL, ROTULOS_ACAO,
   botao, comoMembro, cortar, data as dataBr, embed, EFEMERA, erro, linha, linkApp, menuAbrir, nomePublico, numero, plural, relativo, responder, telaConduta,
@@ -33,7 +33,13 @@ export const data_ = new SlashCommandBuilder()
     s.setName('buscar').setDescription('Busca em tópicos, artigos, trilhas, projetos, propostas e decisões.')
       .addStringOption((o) => o.setName('termo').setDescription('O que procurar').setRequired(true).setMinLength(2).setMaxLength(100)),
   )
-  .addSubcommand((s) => s.setName('ajuda').setDescription('Tudo o que dá para fazer na prévia pelo Discord.'));
+  .addSubcommand((s) => s.setName('ajuda').setDescription('Tudo o que dá para fazer na prévia pelo Discord.'))
+  .addSubcommand((s) =>
+    s.setName('reconhecer').setDescription('(Administração) Reconhece contribuições anteriores: dá nível, não dá Dracmas.')
+      .addUserOption((o) => o.setName('membro').setDescription('Quem será reconhecido').setRequired(true))
+      .addIntegerOption((o) => o.setName('pontos').setDescription('Pontos de reputação (Colaborador = 50, Curador = 250)').setRequired(true).setMinValue(1).setMaxValue(250))
+      .addStringOption((o) => o.setName('motivo').setDescription('O que a pessoa já fez (fica público)').setRequired(true).setMinLength(10).setMaxLength(500)),
+  );
 export { data_ as data };
 
 const ROTULO_BUSCA = { topico: 'Tópico', artigo: 'Artigo', trilha: 'Trilha', projeto: 'Projeto', proposta: 'Proposta', decisao: 'Decisão' };
@@ -48,6 +54,7 @@ export async function execute(interaction) {
   if (sub === 'entrar') return entrar(interaction);
   if (sub === 'perfil') return perfil(interaction);
   if (sub === 'app') return codigoApp(interaction);
+  if (sub === 'reconhecer') return reconhecer(interaction);
   if (sub === 'email') return cadastrarEmail(interaction, interaction.options.getString('email'));
   if (sub === 'pseudonimo') return definirPseudonimo(interaction, interaction.options.getString('nome'));
   if (sub === 'notificacoes') return notificacoes(interaction);
@@ -363,3 +370,32 @@ export async function buscar(interaction, bruto) {
   });
 }
 
+
+// ------------------------------------------------------------------ reconhecimento (administração)
+async function reconhecer(interaction) {
+  const alvo = interaction.options.getUser('membro');
+  const pontos = interaction.options.getInteger('pontos');
+  const motivo = interaction.options.getString('motivo');
+  return comoMembro(interaction, async ({ sb, perfil }) => {
+    if (perfil.papel !== 'admin') return erro(interaction, 'Só a administração da Ágora reconhece contribuições.');
+    if (alvo.bot) return erro(interaction, 'Bots não participam da Ágora.');
+    // Quem ainda não entrou na prévia ganha a conta agora (ligada ao Discord dela)
+    const vinculo = await vinculoDe(alvo, alvo.globalName || alvo.username);
+    await dados(sb.rpc('reconhecer_contribuicao', { p_profile: vinculo.profile_id, p_pontos: pontos, p_motivo: motivo }));
+    const p = await dados(sb.from('perfis_publicos').select('nivel, reputacao_total').eq('id', vinculo.profile_id).single());
+    return responder(interaction, {
+      embeds: [
+        embed(
+          'Contribuição reconhecida',
+          [
+            `${alvo} recebeu **+${pontos} pontos de reputação** e agora está no **nível ${p.nivel} · ${NOMES_NIVEIS[p.nivel]}** (${p.reputacao_total} pontos).`,
+            `Motivo (público): ${motivo}`,
+            '',
+            'Reconhecimento dá nível, mas não gera Dracmas. Cada pessoa pode receber até 250 pontos assim; o resto se conquista contribuindo.',
+          ].join('\n'),
+          COR.secundaria,
+        ),
+      ],
+    });
+  });
+}

@@ -18,7 +18,7 @@ import * as mutirao from './cmd-mutirao.js';
 import * as assembleia from './cmd-assembleia.js';
 import * as aulas from './cmd-aulas.js';
 import { execute as dracmas } from './cmd-dracmas.js';
-import { COR, EFEMERA, NOMES_NIVEIS, botao, comoMembro, cortar, embed, erro, linha, numero, responder, telaConduta } from './ui.js';
+import { COR, EFEMERA, LIMIARES, NOMES_NIVEIS, botao, comoMembro, cortar, embed, erro, linha, numero, responder, telaConduta } from './ui.js';
 
 export const data = new SlashCommandBuilder()
   .setName('menu')
@@ -58,6 +58,7 @@ async function telaInicio({ sb, perfil }) {
       `Olá, **${perfil.pseudonimo_ativo && perfil.pseudonimo ? perfil.pseudonimo : perfil.nome_exibicao}**!`,
       `Nível **${perfil.nivel} · ${NOMES_NIVEIS[perfil.nivel]}** · ${perfil.reputacao_total} pontos de reputação · **${numero(pendente)} DRC** acumulando`,
       perfil.status_assinatura !== 'ativo' ? '\n⚠️ Sua participação não está ativa: você pode ler, mas não publicar. Fale com a administração.' : null,
+      perfil.nivel < 2 ? '\n🌱 Começando agora? Toque em **Subir de nível** para ver o que já dá para fazer e quanto cada coisa rende.' : null,
       '',
       'Escolha uma área abaixo. As respostas aparecem só para você.',
     ].filter((x) => x !== null).join('\n');
@@ -69,7 +70,13 @@ async function telaInicio({ sb, perfil }) {
   return {
     embeds: [e],
     components: [
-      linha(conta, botao('menu:dracmas', 'Dracmas', ButtonStyle.Secondary, '🪙'), botao('menu:notificacoes', 'Notificações', ButtonStyle.Secondary, '🔔'), botao('menu:buscar', 'Buscar', ButtonStyle.Secondary, '🔎')),
+      linha(
+        conta,
+        botao('menu:subir', 'Subir de nível', temConta && perfil.nivel < 2 ? ButtonStyle.Success : ButtonStyle.Secondary, '🌱'),
+        botao('menu:dracmas', 'Dracmas', ButtonStyle.Secondary, '🪙'),
+        botao('menu:notificacoes', 'Notificações', ButtonStyle.Secondary, '🔔'),
+        botao('menu:buscar', 'Buscar', ButtonStyle.Secondary, '🔎'),
+      ),
       linha(
         botao('menu:biblioteca', 'Biblioteca', ButtonStyle.Primary, '📚'),
         botao('menu:acervo', 'Acervo', ButtonStyle.Primary, '🗄️'),
@@ -110,6 +117,47 @@ function telaAulas({ perfil }) {
         botao('menu:au:minhas', 'Minhas aulas', ButtonStyle.Secondary, '🧑‍🏫'),
         voltar(),
       ),
+    ],
+  };
+}
+
+function telaSubir({ perfil }) {
+  const prox = perfil.nivel < 4 ? LIMIARES[perfil.nivel + 1] : null;
+  const ini = LIMIARES[perfil.nivel] ?? 0;
+  const pct = prox ? Math.max(0, Math.min(1, (perfil.reputacao_total - ini) / (prox - ini))) : 1;
+  const barra = `${'█'.repeat(Math.round(pct * 10))}${'░'.repeat(10 - Math.round(pct * 10))}`;
+  return {
+    embeds: [
+      embed(
+        'Como subir de nível',
+        [
+          prox
+            ? `${barra} **${perfil.reputacao_total}/${prox}** — faltam **${prox - perfil.reputacao_total} pontos** para ${NOMES_NIVEIS[perfil.nivel + 1]}.`
+            : `${barra} Você está no nível máximo. Obrigado!`,
+          '',
+          '**O que você já pode fazer agora (qualquer nível) e quanto rende:**',
+          '🎓 **Assistir aulas pela call** — a presença conta sozinha: **+5** por aula. E você avalia quem ensinou.',
+          '🤝 **Ajudar num projeto do Mutirão** — entre no projeto, assuma uma tarefa e registre as horas; a coordenação confirma: **+8 por hora**.',
+          '📅 **Ir a eventos** e fazer o check-in: **+5**.',
+          '💬 **Responder tópicos** da Biblioteca — se quem perguntou marcar sua resposta como útil: **+5**.',
+          '🗳️ **Votar e comentar** na Assembleia — não dá pontos, mas é a sua voz nas decisões.',
+          '',
+          'Exemplo: 3 aulas (+15) + 4 horas de mutirão (+32) + 1 resposta útil (+5) = **52 pontos → Colaborador**.',
+          '',
+          '**No nível 2 (50 pontos)** você passa a criar tópicos, escrever artigos e **dar aulas** (que rendem +20 a +30).',
+          '🏅 Já ajudava a comunidade no Discord antes da Ágora? Peça à administração para **reconhecer** suas contribuições.',
+        ].join('\n'),
+        COR.secundaria,
+      ),
+    ],
+    components: [
+      linha(
+        botao('menu:au:proximas', 'Próximas aulas', ButtonStyle.Primary, '🎓'),
+        botao('menu:m:projetos', 'Projetos', ButtonStyle.Primary, '🤝'),
+        botao('menu:m:eventos', 'Eventos', ButtonStyle.Primary, '📅'),
+        botao('menu:b:topicos', 'Tópicos', ButtonStyle.Primary, '💬'),
+      ),
+      linha(botao('menu:a:votacao', 'Votações abertas', ButtonStyle.Secondary, '🗳️'), voltar()),
     ],
   };
 }
@@ -270,6 +318,8 @@ export const PAGINAS_TUTORIAL = [
       '**Níveis**: 1 Aprendiz (0) · 2 Colaborador (50) · 3 Curador (250) · 4 Guardião (800).',
       'Cada nível libera coisas novas: tópicos e artigos no 2, revisão e propostas no 3, projetos e moderação no 4.',
       'Ninguém compra reputação: ela só vem de contribuição.',
+      '',
+      '🌱 **Começando no nível 1?** Assista a aulas (+5), ajude num projeto do Mutirão (+8/h), vá a eventos (+5) e responda tópicos (+5 se for útil). O botão **Subir de nível** do `/menu` mostra o caminho. Quem já contribuía no Discord pode ter isso reconhecido pela administração (dá nível, não Dracmas).',
     ],
   },
   {
@@ -496,6 +546,7 @@ export async function handleInteraction(interaction, partes) {
   // Telas do menu (atualizam no lugar)
   if (acao === 'inicio') return mostrarTela(interaction, telaInicio);
   if (acao === 'conta') return mostrarTela(interaction, telaConta);
+  if (acao === 'subir') return mostrarTela(interaction, telaSubir);
   if (acao === 'biblioteca') return mostrarTela(interaction, telaBiblioteca);
   if (acao === 'mutirao') return mostrarTela(interaction, telaMutirao);
   if (acao === 'assembleia') return mostrarTela(interaction, telaAssembleia);
@@ -559,4 +610,4 @@ export async function handleModalSubmit(interaction, partes) {
 }
 
 // Telas exportadas para os testes
-export const telas = { telaInicio, telaConta, telaBiblioteca, telaMutirao, telaAssembleia, telaAulas, painelPublico, telaConduta };
+export const telas = { telaInicio, telaSubir, telaConta, telaBiblioteca, telaMutirao, telaAssembleia, telaAulas, painelPublico, telaConduta };

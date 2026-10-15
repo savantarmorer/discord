@@ -17,7 +17,7 @@ import {
 import http from 'http';
 import { config } from './config.js';
 import { comandosAgora } from './agora/comandos.js';
-import { problemasDeConfiguracao } from './agora/cliente.js';
+import { problemasDeConfiguracao, verificarBanco } from './agora/cliente.js';
 import { iniciarEventosDiscord } from './agora/eventos-discord.js';
 import { deployCommands } from './commands/deploy.js';
 
@@ -156,6 +156,11 @@ process.on('unhandledRejection', (reason) => {
 console.log('🚀 Iniciando bot...');
 if (legado) await legado.iniciar();
 for (const p of problemasDeConfiguracao()) console.error(`⚠️  Ágora: ${p}`);
+const erroBanco = await verificarBanco().catch((e) => e.message);
+if (erroBanco) {
+  console.error(`⚠️  Ágora: o banco está desatualizado em relação ao bot (${erroBanco}).`);
+  console.error('   Rode no GitHub: Actions › "Ágora — backend Supabase" › Run workflow. Depois reinicie o bot.');
+}
 
 await deployCommands([...client.commands.values()].map((c) => c.data.toJSON()));
 
