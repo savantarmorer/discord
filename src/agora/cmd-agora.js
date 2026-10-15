@@ -5,6 +5,7 @@
 import crypto from 'node:crypto';
 import { ButtonBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
 import { config } from '../config.js';
+import { ajudaPrefixo } from './prefixo.js';
 import { clienteAdmin, dados, limparSessoes, perfilIdDoDiscord, vinculoDe } from './cliente.js';
 import {
   COR, LIMIARES, NOMES_NIVEIS, PERMISSOES_NIVEL, ROTULOS_ACAO,
@@ -65,7 +66,8 @@ export function telaAjuda() {
   return embed(
     'O que dá para fazer na prévia',
     [
-      '**Jeito mais fácil**: `/menu` abre um painel com botões para tudo, e o **Tutorial** explica cada parte.',
+      '**Jeito mais fácil**: `/menu` (ou `%menu`) abre um painel com botões para tudo, e o **Tutorial** explica cada parte.',
+      ajudaPrefixo() ?? '',
       '',
       '**Conta**: `/agora entrar` · `/agora app` (código para entrar no app) · `/agora perfil` · `/agora email` · `/agora pseudonimo` · `/agora notificacoes` · `/agora buscar`',
       '**Dracmas**: `/dracmas` mostra os créditos que você já acumulou contribuindo.',

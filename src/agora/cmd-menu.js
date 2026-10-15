@@ -288,7 +288,7 @@ export const PAGINAS_TUTORIAL = [
       '🏛️ **Assembleia** — decidir junto: propostas, debate, votação e um arquivo de decisões.',
       '',
       'O app ainda não foi lançado. Esta **prévia pelo Discord** usa o **mesmo banco do app**: o que você faz aqui (reputação, artigos, votos, horas) continua valendo lá.',
-      'As respostas do bot aparecem **só para você**. O bot não posta nada no chat.',
+      'As respostas do bot aparecem **só para você**. Sem a barra? Digite **%menu** (ou %app, %perfil, %aulas…): o bot mostra um botão e a resposta aparece só para você.',
     ],
   },
   {
@@ -446,7 +446,7 @@ function painelPublico() {
         [
           'Estude, aja e decida com a comunidade — antes do app ser lançado, por aqui mesmo.',
           '',
-          '🧭 **Abrir meu menu** — tudo em botões (só você vê)',
+          '🧭 **Abrir meu menu** — tudo em botões (só você vê). Também dá para digitar **%menu** em qualquer canal.',
           '✅ **Criar minha conta** — leva 10 segundos',
           '🎓 **Tutorial** — como funciona, reputação e Dracmas',
         ].join('\n'),

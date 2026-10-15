@@ -74,5 +74,8 @@ export const config = {
     eventosDiscord: process.env.AGORA_EVENTOS_DISCORD !== 'false',
     // Canal de voz padrão das aulas e debates ao vivo (quem marca pode escolher outro)
     canalVozPadrao: process.env.AGORA_CANAL_VOZ_PADRAO || '1514437822407381133',
+    // Prefixo dos comandos por mensagem (%menu, %app…). Vazio desliga. Precisa da intent
+    // "Message Content" ligada no Developer Portal.
+    prefixo: process.env.AGORA_PREFIXO ?? '%',
   },
 };

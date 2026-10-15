@@ -68,7 +68,10 @@ function interacao(quem, { comando, sub, opcoes = {}, foco, customId, valores, c
     deferred: false,
     replied: false,
     // Botões/menus vêm de uma mensagem: efêmera (do menu pessoal) ou pública (painel fixo)
-    message: customId ? { flags: { has: () => efemera } } : undefined,
+    message: customId ? { flags: { has: () => efemera }, delete: async () => null } : undefined,
+    client: { users: { fetch: async (id) => ({ id, username: `u${id}`, globalName: null, bot: false, toString: () => `<@${id}>` }) } },
+    guild: null,
+    isButton: () => Boolean(customId),
     isMessageComponent: () => Boolean(customId) && !customId.includes(':m-'),
     isFromMessage: () => Boolean(customId),
     memberPermissions: { has: () => permissoes.includes('ManageGuild') },
@@ -120,6 +123,7 @@ async function caso(nome, quem, args, esperado, handler = 'execute', partes) {
     if (handler === 'execute') await c.execute(it);
     else if (handler === 'autocomplete') await c.autocomplete(it);
     else if (handler === 'botao') await c.handleInteraction(it, partes);
+    else if (handler === 'botao-direto') respostas.push({ content: partes[0] });
     else if (handler === 'modal') await c.handleModalSubmit(it, partes);
   } catch (e) {
     respostas.push({ content: `EXCEÇÃO: ${e.stack}` });
@@ -454,6 +458,52 @@ await caso('admin reconhece contribuições anteriores', 'admin', { comando: 'ag
 const depoisRec = (await um(admin.from('profiles').select('nivel, reputacao_total').eq('id', pessoas.aprendiz.perfilId).single()));
 if (depoisRec.reputacao_total === antesRec.reputacao_total + 50 && depoisRec.nivel >= 2) { ok++; console.log('✓ reconhecimento sobe o nível do aprendiz'); } else { falhas++; console.log('✗ reconhecimento', antesRec, depoisRec); }
 await caso('limite de reconhecimento por pessoa', 'admin', { comando: 'agora', sub: 'reconhecer', opcoes: { membro: { id: pessoas.aprendiz.discordId, username: 'aprendiz', bot: false }, pontos: 250, motivo: 'Mais contribuições anteriores' } }, 'Limite de 250');
+
+console.log('\n== Comandos com % (sem a barra)');
+const { aoReceberMensagem, aoClicar, interpretar } = await import('../src/agora/prefixo.js');
+const mapaCmds = new Map(Object.entries(cmd));
+/** Simula alguém digitando no canal e depois tocando no botão "Abrir". */
+async function porcento(nome, quem, digitado, esperado, { clicaOutro } = {}) {
+  const lancadores = [];
+  const msg = {
+    author: { id: pessoas[quem].discordId, bot: false, toString: () => `<@${pessoas[quem].discordId}>` },
+    content: digitado,
+    inGuild: () => true,
+    reply: async (x) => { lancadores.push(x); return { delete: async () => null }; },
+    delete: async () => null,
+  };
+  await aoReceberMensagem(msg, mapaCmds);
+  const l = lancadores[0];
+  const token = l?.components?.[0]?.toJSON().components[0].custom_id?.split(':')[1];
+  if (!token) return caso(nome, quem, { comando: 'menu', customId: 'px:x' }, esperado, 'botao-direto', [l?.content ?? 'sem resposta']);
+  const clicador = clicaOutro ?? quem;
+  const { it, respostas } = interacao(clicador, { comando: 'menu', customId: `px:${token}`, efemera: false });
+  try { await aoClicar(it, token, mapaCmds); } catch (e) { respostas.push({ content: `EXCEÇÃO: ${e.stack}` }); }
+  const t = texto(respostas);
+  const lista = Array.isArray(esperado) ? esperado : [esperado];
+  const faltando = lista.filter((x) => !(x instanceof RegExp ? x.test(t) : t.includes(x)));
+  if (faltando.length || /EXCEÇÃO|⚠️ Algo deu errado/.test(t) || t.includes('[no lugar]')) {
+    falhas++;
+    console.log(`✗ ${nome}\n   esperado: ${faltando.join(' | ')}\n   recebido: ${t.slice(0, 700).replace(/\n/g, '\n   ')}`);
+  } else { ok++; console.log(`✓ ${nome}`); }
+}
+const i1 = interpretar('%biblioteca  acervo tarô de marselha', mapaCmds);
+const i2 = interpretar('%Mutirão', mapaCmds);
+const i3 = interpretar('%app', mapaCmds);
+if (i1.comando === 'biblioteca' && i1.sub === 'acervo' && i1.resto === 'tarô de marselha' && i2.comando === 'mutirao' && i2.sub === null && i3.comando === 'agora' && i3.sub === 'app' && interpretar('% 10 reais', mapaCmds) === null && interpretar('olá %menu', mapaCmds) === null) {
+  ok++; console.log('✓ interpreta comandos, atalhos e acentos (e ignora "% 10")');
+} else { falhas++; console.log('✗ interpretar', i1, i2, i3); }
+await porcento('%menu abre o painel (só para quem digitou)', 'membro', '%menu', ['Ágora · menu', 'menu:biblioteca']);
+await porcento('%tutorial', 'membro', '%tutorial', 'Tutorial · 1');
+await porcento('%app gera o código de entrada', 'membro', '%app', 'Seu código para entrar no app');
+await porcento('%dracmas', 'membro', '%dracmas', 'Seus Dracmas');
+await porcento('%biblioteca sem subcomando abre a área no menu', 'membro', '%biblioteca', ['Biblioteca', 'menu:b:topicos']);
+await porcento('%biblioteca topico acha o tópico pelo nome', 'membro', `%biblioteca topico ${topico.titulo.slice(0, 12)}`, topico.titulo.slice(0, 30));
+await porcento('%mutirao horas com campos separados por |', 'aprendiz', `%mutirao horas ${projeto.titulo.slice(0, 10)} | 1,5 | Ajudei na triagem das roupas.`, 'Horas registradas');
+await porcento('%aulas nova abre o formulário', 'membro', '%aulas nova', '[modal aulas:m-nova:');
+await porcento('%subir mostra como subir de nível', 'aprendiz', '%subir', 'Como subir de nível');
+await porcento('botão de outra pessoa não funciona', 'membro', '%perfil', 'outra pessoa', { clicaOutro: 'coord' });
+await porcento('comando desconhecido orienta', 'membro', '%xyz', 'Não conheço');
 
 console.log('\n== Assinatura pelo cargo do Discord');
 const { config } = await import('../src/config.js');

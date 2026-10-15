@@ -21,6 +21,24 @@
 | `/assembleia` | Propostas em debate/votação, voto (a favor, contra, abstenção, bloqueio justificado), comentários, nova proposta, arquivo de decisões e **debate ao vivo** (`sessao`) num canal de voz |
 | `/aulas nova · proximas · aula · minhas` | **Aulas pela call**: quem é nível 2+ marca uma aula num canal de voz; a presença conta sozinha; no fim o bot posta estrelas no chat do canal; com boas avaliações, quem ensinou ganha reputação (= Dracmas) |
 
+### Comandos com % (sem a barra)
+
+Todos os comandos também funcionam digitados com **%**: `%menu`, `%app`, `%perfil`, `%dracmas`, `%aulas`,
+`%acervo tarô`, `%tutorial`, `%subir`, `%ajuda` — ou qualquer comando de barra trocando `/` por `%`
+(`%biblioteca topico hermetismo`, `%mutirao horas agasalhos | 2 | separei doações`; use `|` para separar campos).
+Como mensagem comum não pode ter resposta "só para você", o bot responde com um botão **Abrir (só você vê)** que só
+funciona para quem digitou; a resposta aparece só para a pessoa e o botão some em seguida (o bot também apaga a
+mensagem digitada, se tiver a permissão **Gerenciar mensagens**). Nomes digitados (tópico, projeto, aula…) são
+procurados pelo mesmo autocompletar dos comandos de barra.
+
+Para funcionar, ligue no Developer Portal › seu app › **Bot** › *Privileged Gateway Intents* › **MESSAGE CONTENT INTENT**.
+Sem ela o bot liga normalmente, só sem os comandos com %, e explica isso no log. Troque o prefixo com `AGORA_PREFIXO`
+(vazio desliga).
+
+Se as pessoas não conseguem usar os comandos de **barra**, o motivo costuma ser permissão do servidor:
+*Configurações do servidor › Integrações › (o bot) › Comandos* (libere para @everyone) e, nos canais,
+a permissão **Usar comandos de aplicativo** para @everyone.
+
 **Tudo acontece no mesmo banco do app.** Cada pessoa do Discord ganha uma conta na Ágora e o bot age como ela:
 as regras de nível, permissões e limites são as mesmas do app, e o que é feito na prévia (reputação, artigos,
 votos, horas, créditos de Dracma) já está lá quando o app lançar.
@@ -85,6 +103,7 @@ Para funcionar, dê ao cargo do bot a permissão **Criar eventos** (ou **Gerenci
 | `AGORA_DOMINIO_EMAIL` | não | Domínio dos e-mails técnicos das contas criadas pelo bot (padrão `discord.agora.app`; nenhum e-mail é enviado a ele) |
 | `AGORA_URL_APP` | não | Link de download do app mostrado nas mensagens |
 | `AGORA_EVENTOS_DISCORD` | não | `false` desliga os eventos automáticos no Discord (padrão: ligado) |
+| `AGORA_PREFIXO` | não | Prefixo dos comandos por mensagem (padrão `%`; vazio desliga). Exige a intent MESSAGE CONTENT |
 | `AGORA_CANAL_VOZ_PADRAO` | não | Canal de voz padrão das aulas e debates (padrão `1514437822407381133`) |
 | `RECURSOS_LEGADOS` | não | `true` religa os recursos antigos (exige `SUPABASE_URL`/`SUPABASE_KEY` antigos) |
 
@@ -95,7 +114,8 @@ Para funcionar, dê ao cargo do bot a permissão **Criar eventos** (ou **Gerenci
    `/biblioteca`, `/mutirao`, `/assembleia`, `/aulas`).
 4. (Recomendado) Num canal de boas-vindas, rode `/menu fixar_no_canal:true` e fixe a mensagem.
 
-O bot agora só precisa das intents `Guilds` e `GuildVoiceStates`, que não são privilegiadas (as intents privilegiadas de membros e conteúdo de mensagem podem ser
+O bot usa as intents `Guilds` e `GuildVoiceStates` (não privilegiadas) e, para os comandos com %, `GuildMessages` +
+`MessageContent` (privilegiada — ligar no portal) (as intents privilegiadas de membros e conteúdo de mensagem podem ser
 desligadas no Developer Portal enquanto `RECURSOS_LEGADOS` estiver desligado).
 
 ## Testar
