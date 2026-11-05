@@ -78,4 +78,16 @@ export const config = {
     // "Message Content" ligada no Developer Portal.
     prefixo: process.env.AGORA_PREFIXO ?? '%',
   },
+
+  // Ponte entre um grupo do WhatsApp e um canal do Discord (ver src/agora/whatsapp.js).
+  // Desligada por padrão: usa biblioteca não oficial e o número pode ser banido.
+  whatsapp: {
+    ligado: process.env.WHATSAPP_PONTE === 'true',
+    canalId: process.env.WHATSAPP_CANAL_ID,
+    grupoId: process.env.WHATSAPP_GRUPO_ID,
+    // Só dígitos, com DDI. Usado apenas para parear o número pela primeira vez.
+    numero: process.env.WHATSAPP_NUMERO,
+    // "silent" por padrão; "error" ou "warn" ajudam a investigar problemas de conexão
+    nivelLog: process.env.WHATSAPP_LOG || 'silent',
+  },
 };

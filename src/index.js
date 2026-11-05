@@ -27,11 +27,19 @@ import { deployCommands } from './commands/deploy.js';
 // ============================================
 // Sem os recursos antigos, o bot não precisa ver membros. GuildVoiceStates (não
 // privilegiada) serve só para saber quem está na call das aulas — o bot não entra no
-// canal nem fala. GuildMessages + MessageContent servem só aos comandos com % (%menu…).
+// canal nem fala. GuildMessages + MessageContent servem só aos comandos com % (%menu…)
+// e à ponte com o WhatsApp.
 const legado = config.legado ? await import('./legado.js') : null;
-const comPrefixo = !legado && Boolean(PREFIXO);
-const INTENTS_PREFIXO = [GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent];
-const intentsDe = (prefixo) => (legado
+// A ponte só é carregada se ligada; se a biblioteca falhar, o resto do bot sobe normalmente.
+const ponte = config.whatsapp.ligado
+  ? await import('./agora/whatsapp.js').catch((e) => {
+      console.error('⚠️  WhatsApp: não consegui carregar a ponte:', e.message);
+      return null;
+    })
+  : null;
+const comMensagens = !legado && (Boolean(PREFIXO) || Boolean(ponte));
+const INTENTS_MENSAGENS = [GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent];
+const intentsDe = (mensagens) => (legado
   ? [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildVoiceStates,
@@ -39,7 +47,7 @@ const intentsDe = (prefixo) => (legado
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.MessageContent,
     ]
-  : [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, ...(prefixo ? INTENTS_PREFIXO : [])]);
+  : [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, ...(mensagens ? INTENTS_MENSAGENS : [])]);
 
 // ============================================
 // 2. Comandos
@@ -52,16 +60,16 @@ if (legado) {
   console.log('🔕 Recursos antigos desligados (voz, fala, mensagens no chat, apelidos). Use RECURSOS_LEGADOS=true para religar.');
 }
 
-/** Cria o cliente com os handlers (pode ser recriado sem os comandos com % se a intent faltar). */
-function criarCliente(prefixoLigado) {
-  const client = new Client({ intents: intentsDe(prefixoLigado) });
+/** Cria o cliente com os handlers (pode ser recriado sem ler mensagens se a intent faltar). */
+function criarCliente(mensagens) {
+  const client = new Client({ intents: intentsDe(mensagens) });
   client.commands = comandos;
   if (legado) legado.registrar(client);
-  registrarHandlers(client, prefixoLigado);
+  registrarHandlers(client, !legado && mensagens && Boolean(PREFIXO), Boolean(ponte) && (Boolean(legado) || mensagens));
   return client;
 }
 
-function registrarHandlers(client, prefixoLigado) {
+function registrarHandlers(client, prefixoLigado, ponteLigada) {
 // ============================================
 // 3. Bot pronto
 // ============================================
@@ -72,6 +80,7 @@ client.once(Events.ClientReady, (readyClient) => {
     if (prefixoLigado) console.log(`⌨️  Comandos com ${PREFIXO} ligados (ex.: ${PREFIXO}menu).`);
     if (iniciarEventosDiscord(readyClient)) console.log('📅 Eventos do Mutirão e votações da Assembleia viram eventos do Discord.');
   }
+  if (ponteLigada) ponte.iniciarPonte(readyClient).catch((e) => console.error('⚠️  WhatsApp: a ponte não iniciou:', e.message));
 });
 
 // ============================================
@@ -149,15 +158,27 @@ if (prefixoLigado) {
     aoReceberMensagem(message, client.commands).catch((e) => console.error(`❌ Erro no comando com ${PREFIXO}:`, e.message));
   });
 }
+
+// Mensagens do canal da ponte vão para o grupo do WhatsApp
+if (ponteLigada) {
+  client.on(Events.MessageCreate, (message) => {
+    try {
+      ponte.aoMensagemDiscord(message, PREFIXO);
+    } catch (e) {
+      console.error('⚠️  WhatsApp:', e.message);
+    }
+  });
+}
 }
 
-let client = criarCliente(comPrefixo);
+let client = criarCliente(comMensagens);
 
 // ============================================
 // 5. Desligamento
 // ============================================
 async function gracefulShutdown(signal) {
   console.log(`\n🛑 Recebido ${signal}. Encerrando...`);
+  await ponte?.pararPonte();
   if (legado) {
     try {
       await legado.encerrar();
@@ -204,8 +225,8 @@ http
   .listen(PORT, () => console.log(`📡 Health check na porta ${PORT}`));
 
 // Sem a intent "Message Content" ligada no Developer Portal o Discord recusa a conexão
-// (código 4014): liga de novo sem os comandos com % e explica como ativar.
-const AVISO_INTENT = `⚠️  Os comandos com ${PREFIXO} precisam da intent "Message Content": Developer Portal › seu app › Bot › Privileged Gateway Intents › MESSAGE CONTENT INTENT (ligar e salvar) e reinicie o bot. Ligando sem eles por enquanto.`;
+// (código 4014): liga de novo sem ler mensagens (sem % e sem a ponte) e explica como ativar.
+const AVISO_INTENT = `⚠️  Os comandos com % e a ponte com o WhatsApp precisam da intent "Message Content": Developer Portal › seu app › Bot › Privileged Gateway Intents › MESSAGE CONTENT INTENT (ligar e salvar) e reinicie o bot. Ligando sem eles por enquanto.`;
 let recriado = false;
 async function semPrefixo() {
   if (recriado) return;
@@ -215,7 +236,7 @@ async function semPrefixo() {
   client = criarCliente(false);
   await client.login(config.token);
 }
-if (comPrefixo) {
+if (comMensagens) {
   client.on(Events.ShardDisconnect, (evento) => {
     if (evento?.code === 4014) semPrefixo().catch((e) => console.error('❌ Falha ao reconectar:', e.message));
   });
@@ -223,6 +244,6 @@ if (comPrefixo) {
 try {
   await client.login(config.token);
 } catch (e) {
-  if (comPrefixo && /disallowed intents|privileged intent/i.test(String(e?.message ?? e))) await semPrefixo();
+  if (comMensagens && /disallowed intents|privileged intent/i.test(String(e?.message ?? e))) await semPrefixo();
   else throw e;
 }

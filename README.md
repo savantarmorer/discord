@@ -118,7 +118,36 @@ O bot usa as intents `Guilds` e `GuildVoiceStates` (não privilegiadas) e, para 
 `MessageContent` (privilegiada — ligar no portal) (as intents privilegiadas de membros e conteúdo de mensagem podem ser
 desligadas no Developer Portal enquanto `RECURSOS_LEGADOS` estiver desligado).
 
+## Ponte com o grupo do WhatsApp
+
+Liga um grupo do WhatsApp a um canal de texto do Discord, nos dois sentidos. Vem desligada.
+
+> ⚠️ Usa o [Baileys](https://github.com/WhiskeySockets/Baileys), biblioteca **não oficial**, porque a API oficial quase
+> não serve para grupos comuns. Isso viola os termos do WhatsApp e o número pode ser banido sem aviso. **Use um chip só
+> para isto, nunca o número principal da Ágora.** Avise os membros do grupo de que as mensagens são copiadas para o Discord.
+
+**O que atravessa:** só texto. Do WhatsApp, mídia vira um aviso (`[📷 imagem]`, com a legenda); do Discord, anexos viram
+links, que expiram depois de um tempo. No Discord aparece o nome do perfil, nunca o número de quem enviou. Se uma mensagem
+do Discord não puder ser entregue, o bot reage com ⚠️.
+
+**Para ligar:**
+
+1. Rode `sql/whatsapp_sessao.sql` no SQL Editor do Supabase da Ágora. A sessão fica nessa tabela porque o disco do
+   Render/Railway é apagado a cada deploy.
+2. Ligue a intent MESSAGE CONTENT no Developer Portal e dê ao bot **Gerenciar webhooks** no canal.
+3. Adicione o chip ao grupo e defina `WHATSAPP_PONTE=true`, `WHATSAPP_CANAL_ID` e `WHATSAPP_NUMERO`. Reinicie.
+4. O log mostra um código de 8 letras. No celular do chip: *Aparelhos conectados › Conectar aparelho › Conectar com número
+   de telefone*.
+5. Depois de conectar, o log lista os grupos do número. Copie o ID (`…@g.us`) para `WHATSAPP_GRUPO_ID` e reinicie.
+
+Rode **uma só instância** do bot com a ponte ligada: duas com a mesma sessão ficam se derrubando. Se o número for
+desconectado ou banido, só a ponte para; o resto do bot continua, e o motivo aparece no log. Para ver detalhes da
+conexão, use `WHATSAPP_LOG=warn`.
+
 ## Testar
+
+`npm run testar:whatsapp` confere as regras da ponte e a sessão com um banco falso, sem conectar ao WhatsApp nem ao
+Discord.
 
 `npm run testar:agora` simula 141 interações (comandos, botões, menus, formulários, tutorial, acervo, aulas pela
 call e a sincronização de eventos com um Discord falso) contra um banco da Ágora com o
