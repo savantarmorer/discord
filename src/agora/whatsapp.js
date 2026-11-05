@@ -14,6 +14,7 @@ import makeWASocket, {
   DisconnectReason,
   makeCacheableSignalKeyStore,
   normalizeMessageContent,
+  WAMessageStatus,
 } from 'baileys';
 import pino from 'pino';
 import { config } from '../config.js';
@@ -22,6 +23,7 @@ import {
   deveIrParaWhatsApp,
   dividirTexto,
   esperaDeReconexao,
+  estadoDoGrupo,
   mensagensParaDiscord,
   nomeParaWebhook,
   textoParaWhatsApp,
@@ -34,6 +36,7 @@ const MAX_NA_FILA = 50;
 const NOME_WEBHOOK = 'Ponte WhatsApp';
 const VALIDADE_GRUPO = 5 * 60_000;
 const MAX_ENVIADAS = 500;
+const LIMITE_ENVIO = 60_000; // Um envio travado não pode segurar a fila para sempre
 
 const logger = pino({ level: cfg.nivelLog });
 const log = (...a) => console.log('📱 WhatsApp:', ...a);
@@ -50,7 +53,7 @@ let reconexao = null;
 let webhook = null;
 let grupo = null; // { dados, em }
 
-const enviadas = new Map(); // id → conteúdo, para o WhatsApp poder pedir o reenvio
+const enviadas = new Map(); // id → { conteudo, origem }: reenvio pedido pelo WhatsApp e aviso de recusa
 const filaEnvio = [];
 let enviando = false;
 let filaDiscord = Promise.resolve(); // Mantém a ordem das mensagens no canal
@@ -102,7 +105,7 @@ async function conectar() {
     markOnlineOnConnect: false, // Não tira as notificações do celular do chip
     syncFullHistory: false,
     shouldSyncHistoryMessage: () => false,
-    getMessage: async (key) => enviadas.get(key.id),
+    getMessage: async (key) => enviadas.get(key.id)?.conteudo,
     cachedGroupMetadata: async (jid) => (jid === cfg.grupoId && grupoValido() ? grupo.dados : undefined),
   });
   sock = socket;
@@ -136,6 +139,15 @@ async function conectar() {
     }
   });
 
+  // O servidor pode recusar depois de o envio parecer certo (ex.: só administradores escrevem)
+  socket.ev.on('messages.update', (atualizacoes) => {
+    for (const { key, update } of atualizacoes) {
+      if (update?.status !== WAMessageStatus.ERROR || !enviadas.has(key?.id)) continue;
+      aviso(`o WhatsApp recusou a mensagem ${key.id} (código ${update.messageStubParameters?.[0] ?? '?'}).`);
+      avisarFalha(enviadas.get(key.id).origem);
+    }
+  });
+
   const esquecerGrupo = () => {
     grupo = null;
   };
@@ -161,7 +173,12 @@ async function aoConectar(socket) {
     return;
   }
   if (!grupos[cfg.grupoId]) aviso(`este número não está no grupo ${cfg.grupoId}: adicione o chip ao grupo.`);
-  else grupo = { dados: grupos[cfg.grupoId], em: Date.now() };
+  else {
+    grupo = { dados: grupos[cfg.grupoId], em: Date.now() };
+    const { resumo, problema } = estadoDoGrupo(grupo.dados, sessao.state.creds.me);
+    log(`grupo ${resumo}.`);
+    if (problema) aviso(`as mensagens do Discord não vão chegar ao grupo: ${problema}.`);
+  }
   processarFila();
 }
 
@@ -235,6 +252,7 @@ export function aoMensagemDiscord(message, prefixo) {
     avisarFalha(message);
     return;
   }
+  if (!conectado) log('sem conexão agora: a mensagem do Discord espera na fila até reconectar.');
   filaEnvio.push(message);
   processarFila();
 }
@@ -255,9 +273,18 @@ async function enviarAoGrupo(message) {
   if (!grupoValido()) grupo = { dados: await sock.groupMetadata(cfg.grupoId), em: Date.now() };
   const r = await sock.sendMessage(cfg.grupoId, { text: textoParaWhatsApp(message) });
   if (r?.key?.id && r.message) {
-    enviadas.set(r.key.id, r.message);
+    enviadas.set(r.key.id, { conteudo: r.message, origem: message });
     if (enviadas.size > MAX_ENVIADAS) enviadas.delete(enviadas.keys().next().value);
   }
+  log(`mensagem do Discord enviada ao grupo (${r?.key?.id ?? 'sem id'}).`);
+}
+
+function comLimite(promessa) {
+  let relogio;
+  const limite = new Promise((_, rejeitar) => {
+    relogio = setTimeout(() => rejeitar(new Error(`sem resposta em ${LIMITE_ENVIO / 1000} s`)), LIMITE_ENVIO);
+  });
+  return Promise.race([promessa, limite]).finally(() => clearTimeout(relogio));
 }
 
 /** Envia uma por vez, em ritmo lento. Sem conexão, as mensagens esperam na fila (até 50). */
@@ -268,7 +295,7 @@ async function processarFila() {
     while (conectado && filaEnvio.length) {
       const message = filaEnvio.shift();
       try {
-        await enviarAoGrupo(message);
+        await comLimite(enviarAoGrupo(message));
       } catch (e) {
         aviso('falha ao enviar ao grupo:', e.message);
         avisarFalha(message);

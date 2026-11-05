@@ -4,6 +4,8 @@
 // Decide o que atravessa a ponte e como o texto fica do outro lado. Separado da
 // conexão para poder ser testado sem WhatsApp nem Discord (scripts/testar-whatsapp.mjs).
 
+import { areJidsSameUser } from 'baileys';
+
 export const LIMITE_DISCORD = 2000;
 const LIMITE_NOME_WEBHOOK = 80;
 
@@ -100,6 +102,22 @@ export function textoParaWhatsApp(message) {
   const anexos = [...(message.attachments?.values() ?? [])].map((a) => `📎 ${a.name}: ${a.url}`);
   const corpo = [message.cleanContent ?? message.content ?? '', ...anexos].filter((p) => p.trim()).join('\n');
   return `*${nome}:* ${corpo}`;
+}
+
+/**
+ * Resumo do grupo para o log e o motivo, se houver, de o WhatsApp recusar o que o chip enviar.
+ * O servidor recusa sem gerar erro no envio, então é preciso olhar as regras do grupo.
+ */
+export function estadoDoGrupo(dados, me) {
+  const eu = (dados.participants ?? []).find((p) =>
+    [p.id, p.lid, p.phoneNumber].some((jid) => jid && [me?.id, me?.lid].some((m) => m && areJidsSameUser(jid, m))),
+  );
+  const chipAdmin = Boolean(eu?.admin);
+  let problema = null;
+  if (dados.isCommunity) problema = 'é o grupo principal de uma Comunidade, que não recebe mensagens comuns: use um grupo de conversa dentro dela';
+  else if (dados.announce && !chipAdmin) problema = 'só administradores podem escrever e o chip não é administrador: promova o chip ou mude a regra do grupo';
+  const resumo = `"${dados.subject}": ${dados.participants?.length ?? '?'} membros · só administradores escrevem: ${dados.announce ? 'sim' : 'não'} · chip administrador: ${chipAdmin ? 'sim' : 'não'}`;
+  return { resumo, problema };
 }
 
 /** Espera até a próxima tentativa de reconexão: dobra a cada falha, de 5 s a 5 min. */

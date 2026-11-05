@@ -16,6 +16,7 @@ const {
   deveIrParaWhatsApp,
   dividirTexto,
   esperaDeReconexao,
+  estadoDoGrupo,
   mensagensParaDiscord,
   nomeParaWebhook,
   textoDoWhatsApp,
@@ -115,6 +116,20 @@ test('textoParaWhatsApp: nome em negrito, menções legíveis, anexos como link'
   assert.equal(textoParaWhatsApp(discordMsg({ content: '<@1> oi', cleanContent: '@Ana oi' })), '*bia:* @Ana oi');
   const anexos = new Map([['1', { name: 'a.png', url: 'https://x/a.png' }]]);
   assert.equal(textoParaWhatsApp(discordMsg({ content: '', cleanContent: '', attachments: anexos })), '*bia:* 📎 a.png: https://x/a.png');
+});
+
+test('estadoDoGrupo: aponta por que o WhatsApp recusaria o chip', () => {
+  const me = { id: '5500900000000:12@s.whatsapp.net', lid: '999:12@lid' };
+  const comum = { id: '1@lid' };
+  const chip = (admin = null) => ({ id: '999@lid', admin });
+
+  assert.equal(estadoDoGrupo({ subject: 'G', participants: [comum, chip()] }, me).problema, null);
+  assert.match(estadoDoGrupo({ subject: 'G', announce: true, participants: [comum, chip()] }, me).problema, /administradores/);
+  assert.equal(estadoDoGrupo({ subject: 'G', announce: true, participants: [chip('admin')] }, me).problema, null);
+  assert.equal(estadoDoGrupo({ subject: 'G', announce: true, participants: [{ id: '5500900000000@s.whatsapp.net', admin: 'superadmin' }] }, me).problema, null);
+  assert.match(estadoDoGrupo({ subject: 'G', announce: true, participants: [{ id: '1@lid', admin: 'admin' }, chip()] }, me).problema, /administradores/, 'outro admin não conta');
+  assert.match(estadoDoGrupo({ subject: 'G', isCommunity: true, participants: [chip('admin')] }, me).problema, /Comunidade/);
+  assert.equal(estadoDoGrupo({ subject: 'G', participants: [comum, comum] }, me).resumo, '"G": 2 membros · só administradores escrevem: não · chip administrador: não');
 });
 
 test('esperaDeReconexao: cresce e tem teto', () => {
